@@ -1,55 +1,71 @@
-# ═══════════════════════════════════════════════════════════════════════
-# ⚠️  REPLACE THIS FILE WITH THE OFFICIAL WORKFLOW BEFORE SUBMITTING ⚠️
-#
-# The hackathon provides the real workflow that validates your submission
-# and reports to your dashboard. Download it and overwrite this file:
-#
-#   https://careerapi-production.krishnaik.in/api/ci/hackathons/agentcare-build-challenge-2026/workflow.yml
-#
-# Save the downloaded content here (same path):
-#   .github/workflows/agentcare-checks.yml
-#
-# Then add your SUBMISSION_TOKEN secret:
-#   GitHub repo → Settings → Secrets and variables → Actions → New secret
-#   Name: SUBMISSION_TOKEN   Value: (from your hackathon dashboard)
-#
-# ───────────────────────────────────────────────────────────────────────
-# The placeholder below runs the same *critical* checks locally so you can
-# verify eligibility before pushing, but the OFFICIAL file is what counts.
-# ═══════════════════════════════════════════════════════════════════════
-name: agentcare-checks (placeholder)
+name: AgentCare Checks
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
+on: [push]
+
+permissions:
+  id-token: write      # required — without this the OIDC env vars do not exist
+  contents: read
+
+# A newer push supersedes an older run. The server also rejects stale runs by run_id,
+# but cancelling here saves runner minutes.
+concurrency:
+  group: agentcare-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Where the API actually lives. This is the only value that changes between environments.
+  API_BASE: https://careerapi-production.krishnaik.in
+  # Opaque identifier stamped into the OIDC token. NOT a URL that gets fetched, and NOT
+  # environment-specific — the server accepts this exact string everywhere. Do not change it.
+  OIDC_AUDIENCE: https://career.krishnaik.in
+  HACKATHON: agentcare-build-challenge-2026
 
 jobs:
-  critical-checks:
+  checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Critical check — all Python compiles
-        run: python -m compileall -q app seed.py init_db.py
+      # No extra dependencies: these checks use only the Python standard library.
 
-      - name: Critical check — LLM client is declared
+      - name: Request GitHub OIDC token
+        id: oidc
         run: |
-          if grep -Eiq "groq|openai|anthropic|langchain|langgraph|crewai|autogen" requirements.txt; then
-            echo "✅ LLM client found in requirements.txt"
-          else
-            echo "❌ No LLM client in requirements.txt"; exit 1
+          TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ env.OIDC_AUDIENCE }}" \
+            | jq -r '.value')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::Could not get an OIDC token. Check 'permissions: id-token: write'."
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Download checks
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+          SUBMISSION_TOKEN: ${{ secrets.SUBMISSION_TOKEN }}
+        run: |
+          # The script is served only to GitHub Actions, and only for the hackathon this
+          # token is registered for. Print the server's reason on failure instead of a
+          # bare exit code.
+          HTTP=$(curl -sS -o checks.py -w '%{http_code}' \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "X-Submission-Token: $SUBMISSION_TOKEN" \
+            "$API_BASE/api/ci/hackathons/$HACKATHON/checks.py")
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Could not download checks (HTTP $HTTP): $(cat checks.py)"
+            exit 1
           fi
 
-      - name: Advisory — .env is not committed
-        run: |
-          if git ls-files --error-unmatch .env 2>/dev/null; then
-            echo "⚠️  .env is committed — remove it!"; exit 1
-          else
-            echo "✅ .env not committed"
-          fi
+      - name: Run checks
+        env:
+          WEBHOOK_URL: ${{ env.API_BASE }}/api/ci/report
+          SUBMISSION_TOKEN: ${{ secrets.SUBMISSION_TOKEN }}
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: python checks.py
