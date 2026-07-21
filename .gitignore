@@ -1,0 +1,39 @@
+# Environment & secrets — NEVER commit these
+.env
+.env.local
+*.key
+*.pem
+secrets/
+
+# Database files (local dev data)
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite3
+
+# Uploaded documents (no real patient files in repo)
+uploads/
+app/uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Logs
+*.log
+logs/

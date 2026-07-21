@@ -1,0 +1,55 @@
+# ═══════════════════════════════════════════════════════════════════════
+# ⚠️  REPLACE THIS FILE WITH THE OFFICIAL WORKFLOW BEFORE SUBMITTING ⚠️
+#
+# The hackathon provides the real workflow that validates your submission
+# and reports to your dashboard. Download it and overwrite this file:
+#
+#   https://careerapi-production.krishnaik.in/api/ci/hackathons/agentcare-build-challenge-2026/workflow.yml
+#
+# Save the downloaded content here (same path):
+#   .github/workflows/agentcare-checks.yml
+#
+# Then add your SUBMISSION_TOKEN secret:
+#   GitHub repo → Settings → Secrets and variables → Actions → New secret
+#   Name: SUBMISSION_TOKEN   Value: (from your hackathon dashboard)
+#
+# ───────────────────────────────────────────────────────────────────────
+# The placeholder below runs the same *critical* checks locally so you can
+# verify eligibility before pushing, but the OFFICIAL file is what counts.
+# ═══════════════════════════════════════════════════════════════════════
+name: agentcare-checks (placeholder)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  critical-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Critical check — all Python compiles
+        run: python -m compileall -q app seed.py init_db.py
+
+      - name: Critical check — LLM client is declared
+        run: |
+          if grep -Eiq "groq|openai|anthropic|langchain|langgraph|crewai|autogen" requirements.txt; then
+            echo "✅ LLM client found in requirements.txt"
+          else
+            echo "❌ No LLM client in requirements.txt"; exit 1
+          fi
+
+      - name: Advisory — .env is not committed
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "⚠️  .env is committed — remove it!"; exit 1
+          else
+            echo "✅ .env not committed"
+          fi

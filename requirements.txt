@@ -1,0 +1,30 @@
+# ── Core agentic stack ───────────────────────────────────────────────
+langgraph==0.2.60            # agent orchestration (graph + checkpointer)
+langchain==0.3.14            # LLM abstractions used by langgraph nodes
+langchain-groq==0.2.3        # Groq LLM client  ← LLM integration (CI checks for this)
+groq==0.15.0                 # Groq SDK (fast, free tier)
+
+# ── Backend ──────────────────────────────────────────────────────────
+fastapi==0.115.6             # API layer + backend role enforcement
+uvicorn[standard]==0.34.0    # ASGI server
+python-multipart==0.0.20     # file uploads (document coordination)
+pydantic==2.10.4             # request/response validation
+pydantic-settings==2.7.1     # environment-based configuration
+
+# ── Database (persistent SQL) ────────────────────────────────────────
+SQLAlchemy==2.0.36           # ORM for the persistent SQL database
+# psycopg2-binary==2.9.10    # uncomment to use PostgreSQL / Neon instead of SQLite
+
+# ── Auth / security ──────────────────────────────────────────────────
+passlib[bcrypt]==1.7.4       # password hashing (no plaintext credentials)
+python-jose[cryptography]==3.3.0  # JWT tokens for role-based access
+
+# ── UI ───────────────────────────────────────────────────────────────
+streamlit==1.41.1            # patient + staff user-facing interface
+
+# ── Utilities ────────────────────────────────────────────────────────
+python-dotenv==1.0.1         # load local .env
+httpx==0.28.1                # Streamlit → FastAPI calls
+
+# ── Testing ──────────────────────────────────────────────────────────
+pytest==8.3.4
