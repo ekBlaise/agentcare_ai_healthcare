@@ -3,6 +3,7 @@ langgraph==0.2.60            # agent orchestration (graph + checkpointer)
 langchain==0.3.14            # LLM abstractions used by langgraph nodes
 langchain-groq==0.2.3        # Groq LLM client <- LLM integration (CI checks for this)
 groq==0.15.0                 # Groq SDK (fast, free tier)
+langgraph-checkpoint-sqlite==2.0.1   # SQL checkpointer for persistent agent state
 
 # Backend
 fastapi==0.115.6             # API layer + backend role enforcement

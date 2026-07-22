@@ -78,7 +78,7 @@ flowchart LR
         T4[reminders / escalations / audit]
     end
 
-    subgraph DB[(Persistent SQL database)]
+    subgraph DB[Persistent SQL database]
         D1[patients, departments, doctors, slots]
         D2[appointments, documents]
         D3[workflow_runs, reminders, escalations, audit_events]
@@ -223,6 +223,35 @@ Run the tool tests:
 pytest tests/test_tools.py -v
 ```
 
+## Running the agent workflow (Day 3)
+
+The six agents are wired into a LangGraph graph with conditional edges
+(emergency / diagnosis-seeking -> escalate; uncertain route -> escalate) and a
+SQL checkpointer. Workflow state is persisted to `WorkflowRun` **and**
+checkpointed, so it survives restarts and is inspectable by staff.
+
+**Run it offline (no API key needed) to verify the wiring:**
+```bash
+AGENTCARE_FAKE_LLM=1 python run_workflow.py
+```
+This deterministic mode lets the graph run end to end without a network call.
+
+**Run it with the real LLM:**
+```bash
+# put GROQ_API_KEY in .env, then:
+python run_workflow.py
+```
+
+**What the demo shows:**
+- a normal request -> routed, booked, documents coordinated, reminders set, confirmed
+- an emergency ("chest pain") -> Safety agent escalates, **no booking**
+- a diagnosis-seeking request -> Safety agent escalates as sensitive
+
+Run the agent tests:
+```bash
+pytest tests/test_agents.py -v
+```
+
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
 - Secrets live only in a local, gitignored `.env`; `.env.example` ships without values.
@@ -233,7 +262,7 @@ pytest tests/test_tools.py -v
 ## Status
 - [x] **Day 1** — project scaffold, full SQL schema, seed data, tests, config
 - [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
-- [ ] Day 3 — LangGraph agents + orchestration
+- [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
 - [ ] Day 4 — FastAPI backend + role-based access + escalation approval
 - [ ] Day 5 — Streamlit UI (patient + staff)
 - [ ] Day 6 — hardening, edge cases, docs
