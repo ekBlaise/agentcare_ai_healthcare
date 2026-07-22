@@ -252,6 +252,38 @@ Run the agent tests:
 pytest tests/test_agents.py -v
 ```
 
+## Backend API (Day 4)
+
+FastAPI backend with **role-based access enforced server-side** (not by hiding UI),
+JWT auth, the escalation-approval workflow, and audit endpoints.
+
+**Run the API:**
+```bash
+uvicorn app.api.main:app --reload
+# interactive docs at http://127.0.0.1:8000/docs
+```
+
+**Key endpoints**
+
+| Method | Path | Role | Purpose |
+|--------|------|------|---------|
+| POST | `/auth/login` | any | email + password -> JWT |
+| POST | `/requests` | patient+ | submit request -> runs the agent workflow |
+| GET | `/me/appointments` `/me/documents` `/me/reminders` | patient | view OWN data only |
+| POST | `/me/documents/upload` | patient | multipart file upload -> classify + dedupe |
+| GET | `/staff/escalations` | staff | list escalations |
+| POST | `/staff/escalations/{id}/review` | staff | approve/reject (persisted, audited) |
+| GET | `/staff/workflows` `/staff/workflows/{id}` | staff | inspect runs + persisted agent state |
+| GET | `/staff/audit` | staff | the audit trail |
+
+RBAC is enforced in FastAPI dependencies: a patient token calling a `/staff/*`
+endpoint gets **403**, and missing tokens get **401** — verified by tests.
+
+Run the API tests:
+```bash
+pytest tests/test_api.py -v
+```
+
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
 - Secrets live only in a local, gitignored `.env`; `.env.example` ships without values.
@@ -263,7 +295,7 @@ pytest tests/test_agents.py -v
 - [x] **Day 1** — project scaffold, full SQL schema, seed data, tests, config
 - [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
 - [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
-- [ ] Day 4 — FastAPI backend + role-based access + escalation approval
+- [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
 - [ ] Day 5 — Streamlit UI (patient + staff)
 - [ ] Day 6 — hardening, edge cases, docs
 - [ ] Day 7 — demo video, deploy, submit
