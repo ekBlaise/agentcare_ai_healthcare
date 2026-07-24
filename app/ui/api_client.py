@@ -1,0 +1,81 @@
+"""
+API client for the Streamlit UI. Every function calls the real FastAPI backend
+over HTTP — the UI holds no business logic and displays no hardcoded data.
+
+Functions accept an optional `client` (an httpx.Client or FastAPI TestClient) so
+they can be unit-tested against the live app without a running server.
+"""
+import os
+import base64
+
+import httpx
+
+API_BASE = os.environ.get("AGENTCARE_API_BASE", "http://127.0.0.1:8000")
+
+
+def _client(client=None):
+    return client or httpx.Client(base_url=API_BASE, timeout=60.0)
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def login(email: str, password: str, client=None):
+    c = _client(client)
+    r = c.post("/auth/login", data={"username": email, "password": password})
+    if r.status_code == 200:
+        return True, r.json()
+    return False, {"detail": r.json().get("detail", "Login failed")}
+
+
+def submit_request(token: str, request: str, documents: list | None = None,
+                   preferred_slot_id: int | None = None, client=None):
+    c = _client(client)
+    docs = []
+    for d in documents or []:
+        content = d["content"]
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        docs.append({"filename": d["filename"],
+                     "content_base64": base64.b64encode(content).decode(),
+                     "declared_type": d.get("declared_type")})
+    body = {"request": request, "documents": docs, "preferred_slot_id": preferred_slot_id}
+    r = c.post("/requests", headers=_auth(token), json=body)
+    return r.status_code == 200, r.json()
+
+
+def my_appointments(token, client=None):
+    r = _client(client).get("/me/appointments", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def my_documents(token, client=None):
+    r = _client(client).get("/me/documents", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def my_reminders(token, client=None):
+    r = _client(client).get("/me/reminders", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def list_escalations(token, status="open", client=None):
+    r = _client(client).get(f"/staff/escalations?status={status}", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def review_escalation(token, escalation_id: int, decision: str, notes: str = "", client=None):
+    r = _client(client).post(f"/staff/escalations/{escalation_id}/review",
+                             headers=_auth(token), json={"decision": decision, "notes": notes})
+    return r.status_code == 200, r.json()
+
+
+def list_workflows(token, client=None):
+    r = _client(client).get("/staff/workflows", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def audit_trail(token, limit=50, client=None):
+    r = _client(client).get(f"/staff/audit?limit={limit}", headers=_auth(token))
+    return r.status_code == 200, r.json()

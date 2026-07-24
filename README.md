@@ -284,6 +284,34 @@ Run the API tests:
 pytest tests/test_api.py -v
 ```
 
+## User interface (Day 5)
+
+A Streamlit UI with **patient** and **staff** views, wired entirely to the
+FastAPI backend over HTTP — every value shown comes from a live API call.
+
+**Run it (two terminals):**
+```bash
+# Terminal 1 — backend
+uvicorn app.api.main:app --reload
+
+# Terminal 2 — UI
+streamlit run app/ui/streamlit_app.py
+```
+Point the UI at a non-default backend with `AGENTCARE_API_BASE`.
+
+**Patient view** — submit an administrative request (runs the agent workflow),
+see the confirmation/escalation + agent trace, upload a document, and view own
+appointments, documents, and reminders.
+
+**Staff view** — review open escalations (approve/reject, persisted + audited),
+inspect workflow runs, and browse the audit trail.
+
+The UI's data layer (`app/ui/api_client.py`) is unit-tested against the live
+backend, proving the interface is genuinely wired (not displaying hardcoded data):
+```bash
+pytest tests/test_ui_client.py -v
+```
+
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
 - Secrets live only in a local, gitignored `.env`; `.env.example` ships without values.
@@ -296,6 +324,6 @@ pytest tests/test_api.py -v
 - [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
 - [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
 - [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
-- [ ] Day 5 — Streamlit UI (patient + staff)
+- [x] **Day 5** — Streamlit UI (patient + staff), wired to the backend (2 UI tests)
 - [ ] Day 6 — hardening, edge cases, docs
 - [ ] Day 7 — demo video, deploy, submit
