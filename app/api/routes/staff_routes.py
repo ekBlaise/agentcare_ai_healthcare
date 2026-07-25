@@ -15,7 +15,7 @@ from app.models import (
 )
 from app.api.deps import require_staff
 from app.api.schemas import ReviewIn
-from app.tools import write_audit
+from app.tools import write_audit, create_reminder
 
 router = APIRouter(prefix="/staff", tags=["staff"])
 
@@ -55,6 +55,18 @@ def review_escalation(escalation_id: int, body: ReviewIn,
     write_audit(db, action=f"escalation_{body.decision}d", entity_type="escalation",
                 entity_id=esc.id, actor_id=user.id, actor_type=user.role.value,
                 metadata={"notes": body.notes})
+
+    # Notify the patient of the decision so they see the outcome (not silent).
+    run = esc.workflow_run
+    if run is not None and run.patient_id is not None:
+        decision_word = "approved" if body.decision == "approve" else "declined"
+        note = f" Staff note: {body.notes}" if body.notes else ""
+        create_reminder(
+            db, patient_id=run.patient_id, reminder_type="review_update",
+            message=(f"A staff member reviewed your request and {decision_word} it.{note}"),
+            scheduled_at=datetime.now(timezone.utc),
+        )
+
     return {"escalation_id": esc.id, "status": esc.status.value,
             "reviewed_by": user.name}
 

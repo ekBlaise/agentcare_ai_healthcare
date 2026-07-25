@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.database import init_db
-from app.api.routes import auth_routes, patient_routes, staff_routes
+from app.api.routes import auth_routes, patient_routes, staff_routes, admin_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentcare")
@@ -42,3 +42,4 @@ def health():
 app.include_router(auth_routes.router)
 app.include_router(patient_routes.router)
 app.include_router(staff_routes.router)
+app.include_router(admin_routes.router)

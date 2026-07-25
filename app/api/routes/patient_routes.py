@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Appointment, PatientDocument, Reminder
+from app.models import (
+    User, Appointment, PatientDocument, Reminder, WorkflowRun, Escalation,
+)
 from app.api.deps import require_any, current_patient_profile
 from app.api.auth import get_current_user
 from app.api.schemas import RequestIn, WorkflowResult
@@ -77,6 +79,25 @@ def my_reminders(profile=Depends(current_patient_profile), db: Session = Depends
     return [{"reminder_id": r.id, "type": r.reminder_type,
              "scheduled_at": r.scheduled_at.isoformat() if r.scheduled_at else None,
              "status": r.status.value, "message": r.message} for r in rems]
+
+
+@router.get("/me/escalations")
+def my_escalations(profile=Depends(current_patient_profile), db: Session = Depends(get_db)):
+    """The patient's own requests that were escalated for staff review, and their
+    current decision status — so the patient sees approve/reject outcomes."""
+    run_ids = [r.id for r in
+               db.query(WorkflowRun).filter(WorkflowRun.patient_id == profile.id).all()]
+    if not run_ids:
+        return []
+    escs = (db.query(Escalation)
+            .filter(Escalation.workflow_run_id.in_(run_ids))
+            .order_by(Escalation.created_at.desc()).all())
+    return [{
+        "escalation_id": e.id, "category": e.category, "reason": e.reason,
+        "status": e.status.value, "review_notes": e.review_notes,
+        "reviewed_at": e.reviewed_at.isoformat() if e.reviewed_at else None,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    } for e in escs]
 
 
 @router.post("/me/documents/upload")

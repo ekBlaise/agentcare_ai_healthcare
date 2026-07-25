@@ -22,6 +22,7 @@ def require_roles(*roles: UserRole):
 
 
 require_staff = require_roles(UserRole.STAFF, UserRole.ADMIN)
+require_admin = require_roles(UserRole.ADMIN)
 require_patient = require_roles(UserRole.PATIENT)
 require_any = require_roles(UserRole.PATIENT, UserRole.STAFF, UserRole.ADMIN)
 
