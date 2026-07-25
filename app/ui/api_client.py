@@ -29,6 +29,14 @@ def login(email: str, password: str, client=None):
     return False, {"detail": r.json().get("detail", "Login failed")}
 
 
+def register(name: str, email: str, password: str, client=None):
+    c = _client(client)
+    r = c.post("/auth/register", json={"name": name, "email": email, "password": password})
+    if r.status_code in (200, 201):
+        return True, r.json()
+    return False, {"detail": r.json().get("detail", "Registration failed")}
+
+
 def submit_request(token: str, request: str, documents: list | None = None,
                    preferred_slot_id: int | None = None, client=None):
     c = _client(client)
@@ -60,6 +68,11 @@ def my_reminders(token, client=None):
     return r.status_code == 200, r.json()
 
 
+def my_escalations(token, client=None):
+    r = _client(client).get("/me/escalations", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
 def list_escalations(token, status="open", client=None):
     r = _client(client).get(f"/staff/escalations?status={status}", headers=_auth(token))
     return r.status_code == 200, r.json()
@@ -79,3 +92,22 @@ def list_workflows(token, client=None):
 def audit_trail(token, limit=50, client=None):
     r = _client(client).get(f"/staff/audit?limit={limit}", headers=_auth(token))
     return r.status_code == 200, r.json()
+
+
+def list_departments(token, client=None):
+    r = _client(client).get("/staff/departments", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def list_users(token, role="all", client=None):
+    r = _client(client).get(f"/admin/users?role={role}", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def create_user(token, name, email, password, role="staff", client=None):
+    r = _client(client).post("/admin/users", headers=_auth(token),
+                             json={"name": name, "email": email,
+                                   "password": password, "role": role})
+    if r.status_code in (200, 201):
+        return True, r.json()
+    return False, {"detail": r.json().get("detail", "Could not create user")}

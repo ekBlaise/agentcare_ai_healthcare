@@ -20,11 +20,24 @@ SYSTEM_PROMPT = (
     "You never provide medical advice yourself. Reply with ONLY the single label."
 )
 
-# Diagnosis / prescription-seeking phrases (deterministic backstop)
+# Diagnosis / prescription-seeking phrases (deterministic backstop).
+# This runs even when no LLM is configured, so it must catch the common ways a
+# patient asks for medication, treatment, or a diagnosis — not just polite ones.
 SENSITIVE_PATTERNS = [
+    # asking what/whether to take something
     "what medicine", "what medication", "should i take", "prescribe",
-    "what dose", "dosage", "diagnose", "what's wrong with me",
-    "is it cancer", "do i have", "treat my",
+    "prescription for", "what dose", "dosage", "diagnose", "diagnosis",
+    "what's wrong with me", "is it cancer", "do i have", "treat my",
+    # asking to be given drugs / medication / treatment / a cure
+    "drugs for", "drug for", "medication for", "medicine for", "meds for",
+    "pills for", "treatment for", "cure for", "chemo", "chemotherapy",
+    "drugs to", "drug to", "medication to", "medicine to", "meds to", "pills to",
+    "want drugs", "want medication", "want medicine", "want meds",
+    "need drugs", "need medication", "need medicine", "need meds",
+    "give me drugs", "give me medication", "give me medicine",
+    # reproductive / clearly clinical procedures
+    "abortion", "terminate pregnancy", "terminate my pregnancy",
+    "remove pregnancy", "end my pregnancy", "end this pregnancy",
 ]
 
 

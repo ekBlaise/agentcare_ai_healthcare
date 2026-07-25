@@ -36,3 +36,26 @@ class WorkflowResult(BaseModel):
 class ReviewIn(BaseModel):
     decision: Literal["approve", "reject"]
     notes: str = ""
+
+
+class RegisterIn(BaseModel):
+    """Public patient self-registration."""
+    name: str
+    email: str
+    password: str
+
+
+class CreateUserIn(BaseModel):
+    """Admin-created account (staff or patient)."""
+    name: str
+    email: str
+    password: str
+    role: Literal["patient", "staff", "admin"] = "staff"
+
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    created_at: Optional[str] = None
