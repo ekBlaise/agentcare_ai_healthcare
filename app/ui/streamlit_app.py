@@ -28,10 +28,14 @@ if _ROOT not in sys.path:
 import streamlit as st
 from app.ui import api_client as api
 
-# In-memory session store so a browser refresh doesn't drop the login. Keyed by
-# an opaque id kept in the URL (?sid=…) — never the JWT, which stays server-side.
-# Persists for the life of the Streamlit server process (survives page reloads).
-_SESSIONS: dict = {}
+# Server-side session store so a browser refresh doesn't drop the login. Keyed by
+# an opaque id kept in the URL (?sid=...) — never the JWT, which stays server-side.
+# st.cache_resource is the one store Streamlit guarantees to persist across script
+# reruns AND page refreshes for the life of the server process. A plain module
+# global does NOT reliably survive, which is why refresh appeared to log you out.
+@st.cache_resource
+def _session_store() -> dict:
+    return {}
 
 st.set_page_config(
     page_title="AgentCare",
@@ -283,7 +287,7 @@ def start_session(data):
     """Record a fresh login and pin it to an opaque id in the URL so a browser
     refresh restores it instead of bouncing back to the login page."""
     sid = secrets.token_urlsafe(16)
-    _SESSIONS[sid] = {"token": data["access_token"], "role": data["role"],
+    _session_store()[sid] = {"token": data["access_token"], "role": data["role"],
                       "name": data["name"]}
     st.session_state.update(token=data["access_token"], role=data["role"],
                             name=data["name"], nav="Overview", sid=sid)
@@ -295,8 +299,8 @@ def restore_session():
     if st.session_state.get("token"):
         return
     sid = st.query_params.get("sid")
-    if sid and sid in _SESSIONS:
-        s = _SESSIONS[sid]
+    if sid and sid in _session_store():
+        s = _session_store()[sid]
         st.session_state.update(token=s["token"], role=s["role"],
                                 name=s["name"], sid=sid)
         if st.session_state.get("nav") is None:
@@ -306,7 +310,7 @@ def restore_session():
 def logout():
     sid = st.session_state.get("sid")
     if sid:
-        _SESSIONS.pop(sid, None)
+        _session_store().pop(sid, None)
     st.query_params.clear()
     for k in ("token", "role", "name", "nav", "sid", "focus_esc"):
         st.session_state[k] = None
