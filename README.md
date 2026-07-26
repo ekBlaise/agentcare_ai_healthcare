@@ -359,5 +359,5 @@ logins authenticate.
 - [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
 - [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
 - [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend
-- [x] **Day 6** — hardening: reschedule/cancel endpoints with backend ownership enforcement, duplicate-doc + double-cancel edge cases, interactive appointment management in the UI — **32 tests passing**
-- [ ] Day 7 — demo video, deploy, submit
+- [x] **Day 6** — hardening: reschedule/cancel endpoints with backend ownership enforcement, duplicate-doc + double-cancel edge cases, interactive appointment management in the UI
+- [x] **Day 7** — safety false-positive fix (rubric example now books, not escalates), lifespan migration, empty-request guard — **43 tests passing**

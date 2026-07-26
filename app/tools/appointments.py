@@ -5,7 +5,7 @@ and full booking lifecycle (book / reschedule / cancel), all persisted.
 Conflict detection is real: a slot can only be booked if it is OPEN and the
 patient has no other active appointment overlapping that time window.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
@@ -17,19 +17,30 @@ from app.models import (
 from app.tools.audit import write_audit
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def get_available_slots(
     db: Session,
     department_id: int | None = None,
     doctor_id: int | None = None,
     limit: int = 10,
+    include_past: bool = False,
 ) -> list[dict]:
-    """Return OPEN slots, optionally filtered by department or doctor."""
+    """Return OPEN, FUTURE slots, optionally filtered by department or doctor.
+
+    Past slots are excluded by default so the system never books an appointment
+    in a time that has already passed.
+    """
     q = (
         db.query(AppointmentSlot, Doctor, Department)
         .join(Doctor, AppointmentSlot.doctor_id == Doctor.id)
         .join(Department, Doctor.department_id == Department.id)
         .filter(AppointmentSlot.status == SlotStatus.OPEN)
     )
+    if not include_past:
+        q = q.filter(AppointmentSlot.start_time >= _now())
     if department_id is not None:
         q = q.filter(Department.id == department_id)
     if doctor_id is not None:
@@ -85,6 +96,15 @@ def book_appointment(
         write_audit(db, action="booking_rejected", entity_type="slot", entity_id=slot_id,
                     metadata={"reason": "slot_not_open", "status": slot.status.value})
         return {"success": False, "error": "slot_not_open", "slot_id": slot_id}
+
+    # Never book a slot in the past.
+    slot_start = slot.start_time
+    if slot_start.tzinfo is None:
+        slot_start = slot_start.replace(tzinfo=timezone.utc)
+    if slot_start < _now():
+        write_audit(db, action="booking_rejected", entity_type="slot", entity_id=slot_id,
+                    metadata={"reason": "slot_in_past"})
+        return {"success": False, "error": "slot_in_past", "slot_id": slot_id}
 
     if _patient_has_conflict(db, patient_id, slot.start_time, slot.end_time):
         write_audit(db, action="booking_rejected", entity_type="patient", entity_id=patient_id,
@@ -171,3 +191,45 @@ def cancel_appointment(db: Session, appointment_id: int) -> dict:
     write_audit(db, action="appointment_cancelled", entity_type="appointment",
                 entity_id=appt.id, metadata={"freed_slot": slot.id if slot else None})
     return {"success": True, "appointment_id": appt.id, "status": appt.status.value}
+
+
+def expire_past_appointments(db: Session) -> dict:
+    """
+    Housekeeping: mark confirmed/pending appointments whose time has passed as
+    COMPLETED, and free/expire OPEN slots that are now in the past. Safe to run
+    repeatedly (idempotent). Returns counts.
+    """
+    now = _now()
+
+    # Past active appointments -> completed
+    active = (
+        db.query(Appointment)
+        .join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+        .filter(
+            Appointment.status.in_([
+                AppointmentStatus.PENDING,
+                AppointmentStatus.CONFIRMED,
+                AppointmentStatus.RESCHEDULED,
+            ]),
+            AppointmentSlot.end_time < now,
+        )
+        .all()
+    )
+    for appt in active:
+        appt.status = AppointmentStatus.COMPLETED
+
+    # Past OPEN slots -> mark HELD so they are no longer offered (kept for audit)
+    stale_slots = (
+        db.query(AppointmentSlot)
+        .filter(AppointmentSlot.status == SlotStatus.OPEN,
+                AppointmentSlot.start_time < now)
+        .all()
+    )
+    for s in stale_slots:
+        s.status = SlotStatus.HELD
+
+    db.commit()
+    if active or stale_slots:
+        write_audit(db, action="appointments_expired", entity_type="system",
+                    metadata={"completed": len(active), "expired_slots": len(stale_slots)})
+    return {"completed": len(active), "expired_open_slots": len(stale_slots)}

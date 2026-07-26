@@ -3,6 +3,7 @@ AgentCare FastAPI application — wires auth, patient, and staff routers,
 initializes the database, and adds a global error handler.
 """
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -13,17 +14,30 @@ from app.api.routes import auth_routes, patient_routes, staff_routes, admin_rout
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("agentcare")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure the database schema exists and expire stale appointments.
+    init_db()
+    try:
+        from app.database import SessionLocal
+        from app.tools import expire_past_appointments
+        db = SessionLocal()
+        expire_past_appointments(db)
+        db.close()
+    except Exception:
+        logger.warning("Startup expiry skipped", exc_info=True)
+    logger.info("AgentCare API started; database ready.")
+    yield
+    # Shutdown: nothing to clean up (SQLite connections are per-request).
+
+
 app = FastAPI(
     title="AgentCare API",
     description="Agentic AI for patient administration and care coordination.",
     version="1.0.0",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-def _startup():
-    init_db()
-    logger.info("AgentCare API started; database ready.")
 
 
 @app.exception_handler(Exception)

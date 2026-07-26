@@ -2,6 +2,7 @@
 Coordinator Agent — entry point. Resolves the patient, opens a WorkflowRun
 (persisted), and records the plan. Delegates the rest to specialized agents.
 """
+import uuid
 from app.database import SessionLocal
 from app.models import WorkflowRun, WorkflowStatus
 from app.tools import find_or_create_patient, write_audit
@@ -19,8 +20,21 @@ SYSTEM_PROMPT = (
 def coordinator_agent(state: dict) -> dict:
     db = SessionLocal()
     try:
-        req = state.get("request", "")
+        req = (state.get("request", "") or "").strip()
         pin = state.get("patient_input", {}) or {}
+
+        # Guard: an empty request should not silently book anything.
+        if not req:
+            msgs = state.get("messages", [])
+            msgs.append("Coordinator: empty request received; nothing to process.")
+            return {
+                "status": "completed",
+                "confirmation": "Your message was empty. Please describe what you "
+                                "need — for example, booking an appointment or "
+                                "attaching a document.",
+                "messages": msgs,
+                "safety_verdict": "safe",
+            }
 
         # Resolve/create the patient (real DB tool)
         patient = find_or_create_patient(
@@ -43,7 +57,7 @@ def coordinator_agent(state: dict) -> dict:
         # Open a persisted workflow run
         run = WorkflowRun(
             patient_id=patient["patient_id"],
-            thread_id=f"wf-{patient['patient_id']}-{int(__import__('time').time())}",
+            thread_id=f"wf-{patient['patient_id']}-{uuid.uuid4().hex[:12]}",
             original_request=req,
             current_step="coordinator",
             status=WorkflowStatus.RUNNING,

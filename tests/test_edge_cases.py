@@ -115,3 +115,59 @@ def test_duplicate_document_via_api(client):
     docs = client.get("/me/documents", headers=_auth(tok)).json()
     ecgs = [d for d in docs if d.get("type") == "ECG"]
     assert len(ecgs) == 1   # SHA-256 dedupe kept only one
+
+
+def test_empty_request_does_not_book():
+    """An empty/whitespace request is handled gracefully and books nothing."""
+    import uuid
+    from app.database import init_db
+    from app.agents import build_graph
+    init_db()
+    graph = build_graph(checkpointer=None)
+    final = graph.invoke(
+        {"request": "   ", "patient_input": {"name": "E", "email": "empty@example.com"},
+         "documents_input": [], "messages": [], "status": "running"},
+        config={"configurable": {"thread_id": f"t-{uuid.uuid4().hex[:8]}"}})
+    assert final.get("appointment_id") is None
+    assert final["status"] == "completed"
+
+
+def test_agent_skips_conflicting_slots_and_books_next():
+    """A patient booking repeatedly gets successive non-conflicting slots,
+    and rapid same-patient requests don't collide on workflow thread_id."""
+    import uuid
+    from app.database import init_db, SessionLocal
+    from app.models import Department, Doctor, AppointmentSlot, SlotStatus
+    from datetime import datetime, timedelta, timezone
+    init_db()
+    db = SessionLocal()
+    # dedicated department so this test never competes for Cardiology slots
+    dept = db.query(Department).filter_by(name="Neurology").first()
+    if dept is None:
+        dept = Department(name="Neurology", description="Nerve", active=True)
+        db.add(dept); db.flush()
+    doc = db.query(Doctor).filter_by(department_id=dept.id).first()
+    if doc is None:
+        doc = Doctor(department_id=dept.id, name="Dr. Nerve", active=True)
+        db.add(doc); db.flush()
+    base = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=20)
+    for i in range(8):
+        st = base + timedelta(hours=3 * i)
+        db.add(AppointmentSlot(doctor_id=doc.id, start_time=st,
+                               end_time=st + timedelta(minutes=30), status=SlotStatus.OPEN))
+    db.commit()
+    db.close()
+
+    from app.agents import build_graph
+    graph = build_graph(checkpointer=None)
+    booked = []
+    for _ in range(3):   # rapid successive bookings, same patient
+        final = graph.invoke(
+            {"request": "neurology follow-up next week",
+             "patient_input": {"name": "Multi", "email": "multi@example.com"},
+             "documents_input": [], "messages": [], "status": "running"},
+            config={"configurable": {"thread_id": f"t-{uuid.uuid4().hex[:8]}"}})
+        assert final["status"] == "completed"
+        assert final.get("appointment_id") is not None
+        booked.append(final["appointment_id"])
+    assert len(set(booked)) == 3   # three distinct appointments, no crash, no conflict failure

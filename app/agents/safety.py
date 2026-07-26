@@ -12,12 +12,31 @@ from app.agents.llm import llm_available, chat
 settings = get_settings()
 
 SYSTEM_PROMPT = (
-    "You are the Safety agent in a hospital ADMINISTRATION system. Your ONLY job "
-    "is to classify an incoming request into exactly one label:\n"
-    "  EMERGENCY  - describes an acute medical emergency needing immediate care\n"
-    "  SENSITIVE  - asks for diagnosis, prescription, dosage, or clinical advice\n"
-    "  SAFE       - a purely administrative request (booking, documents, routing)\n"
-    "You never provide medical advice yourself. Reply with ONLY the single label."
+    "You are the Safety triage classifier in a hospital ADMINISTRATION system.\n"
+    "The system's job is to BOOK APPOINTMENTS, ROUTE to departments, and HANDLE\n"
+    "DOCUMENTS. Naming a specialty, symptom, condition, or medical document is a\n"
+    "NORMAL part of an administrative request and is SAFE by itself.\n\n"
+    "Classify the request into exactly ONE label:\n\n"
+    "SAFE - administrative: booking, rescheduling, cancelling, routing to a\n"
+    "  department, attaching or asking about documents/records, reminders. Mentioning\n"
+    "  a condition or specialty to get to the right place is SAFE.\n"
+    "  Examples (ALL SAFE):\n"
+    "    - 'I need a cardiology follow-up next week and want to attach my old ECG.'\n"
+    "    - 'Book me a dermatology appointment for a skin check.'\n"
+    "    - 'Reschedule my orthopedics visit; here is my referral.'\n"
+    "    - 'I have diabetes and need my regular endocrinology follow-up.'\n\n"
+    "SENSITIVE - the patient asks YOU to practice medicine: to diagnose them, to\n"
+    "  tell them what medication/dose to take, to interpret results clinically, or\n"
+    "  to advise treatment.\n"
+    "  Examples (SENSITIVE):\n"
+    "    - 'What medication should I take for my headache?'\n"
+    "    - 'Do I have cancer? What do my ECG results mean?'\n"
+    "    - 'What dose of insulin is right for me?'\n\n"
+    "EMERGENCY - an acute emergency needing immediate care (chest pain now,\n"
+    "  can't breathe, stroke signs, severe bleeding, suicidal intent, overdose).\n\n"
+    "When unsure between SAFE and SENSITIVE, choose SAFE unless the patient is\n"
+    "clearly asking you to make a clinical judgement. Reply with ONLY one word:\n"
+    "SAFE, SENSITIVE, or EMERGENCY."
 )
 
 # Diagnosis / prescription-seeking phrases (deterministic backstop).
@@ -60,14 +79,19 @@ def safety_agent(state: dict) -> dict:
         # Deterministic emergency keyword check ALWAYS runs (never skipped)
         verdict, reason = _heuristic_verdict(req)
 
-        # If keywords say safe, optionally let the LLM catch subtler cases
+        # If keywords say safe, let the LLM catch subtler cases. We parse the
+        # FIRST word only (the prompt asks for a single-word answer) so that an
+        # explanatory mention of "emergency"/"sensitive" doesn't trip a false
+        # escalation on an otherwise administrative request.
         if verdict == "safe" and llm_available():
             try:
-                label = chat(SYSTEM_PROMPT, f"Request: {req}").strip().upper()
-                if "EMERGENCY" in label:
+                raw = chat(SYSTEM_PROMPT, f"Request: {req}", temperature=0.0)
+                token = raw.strip().upper().split()[0].strip(".:,!") if raw.strip() else ""
+                if token == "EMERGENCY":
                     verdict, reason = "emergency", "LLM classified as emergency."
-                elif "SENSITIVE" in label:
+                elif token == "SENSITIVE":
                     verdict, reason = "sensitive", "LLM classified as clinical-advice request."
+                # any other output (incl. SAFE) leaves the safe verdict intact
             except Exception:
                 pass  # fall back to heuristic verdict
 

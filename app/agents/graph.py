@@ -23,6 +23,11 @@ from app.agents.finalize import escalate_node, confirm_node
 
 
 # ── conditional edge functions ────────────────────────────────────────────
+def after_coordinator(state: dict) -> str:
+    # An empty request is finalized by the coordinator itself; skip the pipeline.
+    return "end" if not (state.get("request", "") or "").strip() else "safety"
+
+
 def after_safety(state: dict) -> str:
     return "escalate" if state.get("safety_verdict") in ("emergency", "sensitive") else "routing"
 
@@ -45,7 +50,8 @@ def build_graph(checkpointer=None):
     g.add_node("confirm", confirm_node)
 
     g.add_edge(START, "coordinator")
-    g.add_edge("coordinator", "safety")
+    g.add_conditional_edges("coordinator", after_coordinator,
+                            {"end": END, "safety": "safety"})
     g.add_conditional_edges("safety", after_safety,
                             {"escalate": "escalate", "routing": "routing"})
     g.add_conditional_edges("routing", after_routing,

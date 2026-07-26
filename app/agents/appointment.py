@@ -3,7 +3,7 @@ Appointment Agent — retrieves availability, checks conflicts, and books a slot
 in the routed department. Purely tool-driven (deterministic, persisted).
 """
 from app.database import SessionLocal
-from app.tools import get_available_slots, book_appointment, write_audit
+from app.tools import get_available_slots, book_appointment, write_audit, expire_past_appointments
 
 
 def appointment_agent(state: dict) -> dict:
@@ -17,27 +17,44 @@ def appointment_agent(state: dict) -> dict:
             msgs.append("Appointment: skipped (no department or patient).")
             return {"messages": msgs}
 
-        slots = get_available_slots(db, department_id=dept_id, limit=5)
+        # Self-healing: expire any past appointments/slots before offering times.
+        expire_past_appointments(db)
+
+        slots = get_available_slots(db, department_id=dept_id, limit=10)
         if not slots:
             msgs.append("Appointment: no open slots available.")
             return {"messages": msgs, "appointment_status": "no_slots"}
 
-        # honor a preferred slot if the patient chose one, else take the earliest
+        # If the patient chose a specific slot, try that first; otherwise try the
+        # open slots in time order, skipping any that conflict with an existing
+        # appointment, and book the first one that succeeds.
         preferred = state.get("preferred_slot_id")
-        slot_id = preferred if preferred in {s["slot_id"] for s in slots} else slots[0]["slot_id"]
+        ordered_ids = [s["slot_id"] for s in slots]
+        if preferred in ordered_ids:
+            ordered_ids = [preferred] + [i for i in ordered_ids if i != preferred]
 
-        result = book_appointment(db, patient_id, slot_id, reason=state.get("request", ""))
-        if result.get("success"):
-            msgs.append(f"Appointment: booked #{result['appointment_id']} "
-                        f"({result['status']}) at {result['start_time']}")
-            return {
-                "appointment_id": result["appointment_id"],
-                "appointment_status": result["status"],
-                "booked_slot": {"slot_id": slot_id, "start_time": result["start_time"]},
-                "messages": msgs,
-            }
+        last_error = None
+        for slot_id in ordered_ids:
+            result = book_appointment(db, patient_id, slot_id, reason=state.get("request", ""))
+            if result.get("success"):
+                msgs.append(f"Appointment: booked #{result['appointment_id']} "
+                            f"({result['status']}) at {result['start_time']}")
+                return {
+                    "appointment_id": result["appointment_id"],
+                    "appointment_status": result["status"],
+                    "booked_slot": {"slot_id": slot_id, "start_time": result["start_time"]},
+                    "messages": msgs,
+                }
+            last_error = result.get("error")
+            # a time conflict just means "try the next slot"; other errors do too
+            continue
 
-        msgs.append(f"Appointment: booking failed ({result.get('error')}).")
-        return {"appointment_status": f"failed:{result.get('error')}", "messages": msgs}
+        # Every candidate slot conflicted or failed.
+        if last_error == "patient_time_conflict":
+            msgs.append("Appointment: you already have an appointment at every "
+                        "available time in this department.")
+            return {"appointment_status": "failed:patient_time_conflict", "messages": msgs}
+        msgs.append(f"Appointment: booking failed ({last_error}).")
+        return {"appointment_status": f"failed:{last_error}", "messages": msgs}
     finally:
         db.close()
