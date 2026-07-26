@@ -118,15 +118,38 @@ def list_departments_endpoint(user: User = Depends(require_staff),
 @router.get("/appointments")
 def list_appointments(status: str = "awaiting_confirmation",
                       user: User = Depends(require_staff), db: Session = Depends(get_db)):
-    """List appointments by status (default: those awaiting outcome confirmation)."""
-    from app.models import Appointment, AppointmentStatus
+    """List appointments by status.
+
+    status="awaiting_confirmation" (default): past appointments needing an outcome.
+    status="upcoming": future active appointments (the staff schedule view),
+      sorted by appointment start time.
+    status="all" or any specific status value: filtered accordingly.
+    """
+    from datetime import datetime, timezone
+    from app.models import Appointment, AppointmentSlot, AppointmentStatus
+
     q = db.query(Appointment)
-    if status != "all":
+
+    if status == "upcoming":
+        now = datetime.now(timezone.utc)
+        q = (q.join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+             .filter(AppointmentSlot.start_time >= now,
+                     Appointment.status.in_([
+                         AppointmentStatus.PENDING,
+                         AppointmentStatus.CONFIRMED,
+                         AppointmentStatus.RESCHEDULED,
+                     ]))
+             .order_by(AppointmentSlot.start_time.asc()))
+    elif status != "all":
         try:
             q = q.filter(Appointment.status == AppointmentStatus(status))
+            q = q.order_by(Appointment.created_at.desc())
         except ValueError:
             raise HTTPException(400, f"Invalid status '{status}'")
-    rows = q.order_by(Appointment.created_at.desc()).all()
+    else:
+        q = q.order_by(Appointment.created_at.desc())
+
+    rows = q.all()
     return [{
         "appointment_id": a.id,
         "patient_id": a.patient_id,

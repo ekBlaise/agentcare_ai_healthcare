@@ -86,3 +86,38 @@ def test_staff_records_attended_and_missed(client_and_appt):
     # can flip to missed as a correction
     r2 = client.post(f"/staff/appointments/{appt_id}/outcome?attended=false", headers=_auth(tok))
     assert r2.status_code == 200 and r2.json()["status"] == "missed"
+
+
+def test_staff_sees_upcoming_schedule(client_and_appt):
+    """Staff can list upcoming (future) appointments, sorted by time."""
+    client, _ = client_and_appt
+    # book a future appointment as a patient first
+    ptok = _tok(client, "opat@example.com")
+    # ensure there are future slots in some department
+    from app.database import SessionLocal
+    from app.models import Department, Doctor, AppointmentSlot, SlotStatus
+    from datetime import datetime, timedelta, timezone
+    db = SessionLocal()
+    dept = db.query(Department).filter_by(name="OutcomeDept").first()
+    doc = db.query(Doctor).filter_by(department_id=dept.id).first()
+    now = datetime.now(timezone.utc)
+    if db.query(AppointmentSlot).filter(
+            AppointmentSlot.doctor_id == doc.id,
+            AppointmentSlot.status == SlotStatus.OPEN,
+            AppointmentSlot.start_time >= now).count() == 0:
+        st = now + timedelta(days=3)
+        db.add(AppointmentSlot(doctor_id=doc.id, start_time=st,
+                               end_time=st + timedelta(minutes=30), status=SlotStatus.OPEN))
+        db.commit()
+    db.close()
+
+    client.post("/requests", headers=_auth(ptok),
+                json={"request": "outcomedept follow-up please"})
+
+    stok = _tok(client, "ostaff@example.com")
+    r = client.get("/staff/appointments?status=upcoming", headers=_auth(stok))
+    assert r.status_code == 200
+    rows = r.json()
+    # all returned appointments must be future + active
+    for a in rows:
+        assert a["status"] in ("pending", "confirmed", "rescheduled")

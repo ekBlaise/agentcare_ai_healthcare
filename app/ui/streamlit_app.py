@@ -341,12 +341,14 @@ def load_staff(token, role):
     ow, w = _safe(api.list_workflows, token)
     oau, au = _safe(api.audit_trail, token, limit=100)
     oap, ap = _safe(api.list_appointments, token, status="awaiting_confirmation")
+    oup, up = _safe(api.list_appointments, token, status="upcoming")
     data = {
         "ok": bool(oe and ow and oau),
         "escs": e if oe and isinstance(e, list) else [],
         "wfs": w if ow and isinstance(w, list) else [],
         "audit": au if oau and isinstance(au, list) else [],
         "appts": ap if oap and isinstance(ap, list) else [],
+        "upcoming": up if oup and isinstance(up, list) else [],
         "depts": [],
         "users": [],
     }
@@ -913,33 +915,47 @@ def staff_section(section, token, data, role):
 
     elif section == "Appointments":
         page_head(crumb, "Appointments",
-                  "Past appointments awaiting outcome confirmation.")
-        awaiting = data.get("appts", [])
-        if not awaiting:
-            st.markdown(empty("✅", "No appointments awaiting confirmation."),
-                        unsafe_allow_html=True)
-        else:
-            st.caption("Confirm whether each past appointment was attended. "
-                       "Completed = attended · Missed = no-show.")
-            for a in awaiting:
-                aid = a["appointment_id"]
-                with st.container(border=True):
-                    when = (a.get("start_time") or "")[:16].replace("T", " ")
-                    st.markdown(f"**#{aid} · {esc(a.get('department',''))} · "
-                                f"{esc(a.get('doctor',''))}**  \n"
-                                f"🕑 {esc(when)} — {esc(a.get('reason') or '')}")
-                    c1, c2 = st.columns(2)
-                    if c1.button("✓ Attended (complete)", key=f"att_{aid}",
-                                 type="primary", use_container_width=True):
-                        ok, _ = _safe(api.record_outcome, token, aid, True)
-                        if ok:
-                            st.success(f"Appointment #{aid} marked completed.")
-                            st.rerun()
-                    if c2.button("✗ Missed", key=f"miss_{aid}", use_container_width=True):
-                        ok, _ = _safe(api.record_outcome, token, aid, False)
-                        if ok:
-                            st.warning(f"Appointment #{aid} marked missed.")
-                            st.rerun()
+                  "Upcoming schedule and past appointments awaiting confirmation.")
+        tab_upcoming, tab_confirm = st.tabs(
+            [f"📅 Upcoming ({len(data.get('upcoming', []))})",
+             f"✅ Awaiting confirmation ({len(data.get('appts', []))})"])
+
+        with tab_upcoming:
+            upcoming = data.get("upcoming", [])
+            if not upcoming:
+                st.markdown(empty("📅", "No upcoming appointments scheduled."),
+                            unsafe_allow_html=True)
+            else:
+                st.caption("Confirmed and pending appointments, earliest first.")
+                st.markdown(appts_html(upcoming), unsafe_allow_html=True)
+
+        with tab_confirm:
+            awaiting = data.get("appts", [])
+            if not awaiting:
+                st.markdown(empty("✅", "No appointments awaiting confirmation."),
+                            unsafe_allow_html=True)
+            else:
+                st.caption("Confirm whether each past appointment was attended. "
+                           "Completed = attended · Missed = no-show.")
+                for a in awaiting:
+                    aid = a["appointment_id"]
+                    with st.container(border=True):
+                        when = (a.get("start_time") or "")[:16].replace("T", " ")
+                        st.markdown(f"**#{aid} · {esc(a.get('department',''))} · "
+                                    f"{esc(a.get('doctor',''))}**  \n"
+                                    f"🕑 {esc(when)} — {esc(a.get('reason') or '')}")
+                        c1, c2 = st.columns(2)
+                        if c1.button("✓ Attended (complete)", key=f"att_{aid}",
+                                     type="primary", use_container_width=True):
+                            ok, _ = _safe(api.record_outcome, token, aid, True)
+                            if ok:
+                                st.success(f"Appointment #{aid} marked completed.")
+                                st.rerun()
+                        if c2.button("✗ Missed", key=f"miss_{aid}", use_container_width=True):
+                            ok, _ = _safe(api.record_outcome, token, aid, False)
+                            if ok:
+                                st.warning(f"Appointment #{aid} marked missed.")
+                                st.rerun()
 
     elif section == "Workflows":
         page_head(crumb, "People", "All staff and patients — and add new accounts.")
