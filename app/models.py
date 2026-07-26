@@ -44,7 +44,9 @@ class AppointmentStatus(str, enum.Enum):
     CONFIRMED = "confirmed"
     RESCHEDULED = "rescheduled"
     CANCELLED = "cancelled"
-    COMPLETED = "completed"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"  # time passed; outcome not yet recorded
+    COMPLETED = "completed"                          # confirmed as attended (by staff)
+    MISSED = "missed"                                # confirmed as not attended (by staff)
 
 
 class WorkflowStatus(str, enum.Enum):

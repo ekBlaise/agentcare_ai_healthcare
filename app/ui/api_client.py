@@ -130,3 +130,15 @@ def cancel_appointment(token, appointment_id: int, client=None):
     r = _client(client).post(f"/me/appointments/{appointment_id}/cancel",
                              headers=_auth(token))
     return r.status_code == 200, r.json()
+
+
+def list_appointments(token, status="awaiting_confirmation", client=None):
+    r = _client(client).get(f"/staff/appointments?status={status}", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def record_outcome(token, appointment_id: int, attended: bool, client=None):
+    r = _client(client).post(
+        f"/staff/appointments/{appointment_id}/outcome?attended={str(attended).lower()}",
+        headers=_auth(token))
+    return r.status_code == 200, r.json()

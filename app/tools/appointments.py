@@ -195,13 +195,16 @@ def cancel_appointment(db: Session, appointment_id: int) -> dict:
 
 def expire_past_appointments(db: Session) -> dict:
     """
-    Housekeeping: mark confirmed/pending appointments whose time has passed as
-    COMPLETED, and free/expire OPEN slots that are now in the past. Safe to run
-    repeatedly (idempotent). Returns counts.
+    Housekeeping: move active appointments whose time has passed into
+    AWAITING_CONFIRMATION (a human records whether the patient actually attended),
+    and retire OPEN slots that are now in the past. Idempotent. Returns counts.
+
+    Note: we deliberately do NOT auto-mark past appointments as 'completed' — the
+    system cannot know a patient attended. Staff confirm the real outcome via
+    record_appointment_outcome().
     """
     now = _now()
 
-    # Past active appointments -> completed
     active = (
         db.query(Appointment)
         .join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
@@ -216,9 +219,8 @@ def expire_past_appointments(db: Session) -> dict:
         .all()
     )
     for appt in active:
-        appt.status = AppointmentStatus.COMPLETED
+        appt.status = AppointmentStatus.AWAITING_CONFIRMATION
 
-    # Past OPEN slots -> mark HELD so they are no longer offered (kept for audit)
     stale_slots = (
         db.query(AppointmentSlot)
         .filter(AppointmentSlot.status == SlotStatus.OPEN,
@@ -231,5 +233,29 @@ def expire_past_appointments(db: Session) -> dict:
     db.commit()
     if active or stale_slots:
         write_audit(db, action="appointments_expired", entity_type="system",
-                    metadata={"completed": len(active), "expired_slots": len(stale_slots)})
-    return {"completed": len(active), "expired_open_slots": len(stale_slots)}
+                    metadata={"awaiting_confirmation": len(active),
+                              "expired_slots": len(stale_slots)})
+    return {"awaiting_confirmation": len(active), "expired_open_slots": len(stale_slots)}
+
+
+def record_appointment_outcome(db: Session, appointment_id: int, attended: bool,
+                               actor_id: int | None = None) -> dict:
+    """
+    Staff/doctor records whether a past appointment actually happened:
+    attended=True  -> COMPLETED
+    attended=False -> MISSED
+    Only valid for appointments that are past (AWAITING_CONFIRMATION) or still
+    marked confirmed. Persists and audits the human decision.
+    """
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appt is None:
+        return {"success": False, "error": "appointment_not_found"}
+    if appt.status in (AppointmentStatus.CANCELLED,):
+        return {"success": False, "error": f"cannot_record_{appt.status.value}"}
+
+    appt.status = AppointmentStatus.COMPLETED if attended else AppointmentStatus.MISSED
+    db.commit()
+    write_audit(db, action="appointment_outcome_recorded", entity_type="appointment",
+                entity_id=appt.id, actor_id=actor_id, actor_type="staff",
+                metadata={"attended": attended, "status": appt.status.value})
+    return {"success": True, "appointment_id": appt.id, "status": appt.status.value}

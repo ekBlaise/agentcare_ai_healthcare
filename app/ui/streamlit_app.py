@@ -44,10 +44,11 @@ st.set_page_config(
 NAV = {
     "patient": [("Overview", "🏠"), ("New request", "➕"), ("My requests", "📨"),
                 ("Appointments", "📅"), ("Documents", "📄"), ("Reminders", "🔔")],
-    "staff":   [("Overview", "🏠"), ("Escalations", "⚠️"), ("Workflows", "🗂️"),
-                ("Audit trail", "🧾")],
+    "staff":   [("Overview", "🏠"), ("Escalations", "⚠️"), ("Appointments", "📅"),
+                ("Workflows", "🗂️"), ("Audit trail", "🧾")],
     "admin":   [("Overview", "🏠"), ("People", "👥"), ("Escalations", "⚠️"),
-                ("Workflows", "🗂️"), ("Audit trail", "🧾"), ("Departments", "🏥")],
+                ("Appointments", "📅"), ("Workflows", "🗂️"), ("Audit trail", "🧾"),
+                ("Departments", "🏥")],
 }
 
 
@@ -221,11 +222,15 @@ def fmt_dt(iso, fallback="—"):
 
 
 _TONES = {
-    "completed": "green", "confirmed": "green", "booked": "green", "approved": "green",
+    "completed": "green", "booked": "green", "approved": "green",
     "sent": "green", "active": "green", "done": "green", "resolved": "green",
+    "attended": "green",
+    "confirmed": "blue", "rescheduled": "blue", "scheduled": "blue",
+    "running": "blue", "in_progress": "blue",
     "escalated": "amber", "open": "amber", "pending": "amber", "sensitive": "amber",
-    "scheduled": "blue", "running": "blue", "in_progress": "blue",
+    "awaiting_confirmation": "amber", "awaiting confirmation": "amber",
     "cancelled": "red", "rejected": "red", "failed": "red", "emergency": "red",
+    "missed": "red", "no_show": "red",
 }
 
 
@@ -331,11 +336,13 @@ def load_staff(token, role):
     oe, e = _safe(api.list_escalations, token, status="open")
     ow, w = _safe(api.list_workflows, token)
     oau, au = _safe(api.audit_trail, token, limit=100)
+    oap, ap = _safe(api.list_appointments, token, status="awaiting_confirmation")
     data = {
         "ok": bool(oe and ow and oau),
         "escs": e if oe and isinstance(e, list) else [],
         "wfs": w if ow and isinstance(w, list) else [],
         "audit": au if oau and isinstance(au, list) else [],
+        "appts": ap if oap and isinstance(ap, list) else [],
         "depts": [],
         "users": [],
     }
@@ -900,15 +907,37 @@ def staff_section(section, token, data, role):
             st.markdown(empty("✅", "No open escalations. You're all caught up."),
                         unsafe_allow_html=True)
 
+    elif section == "Appointments":
+        page_head(crumb, "Appointments",
+                  "Past appointments awaiting outcome confirmation.")
+        awaiting = data.get("appts", [])
+        if not awaiting:
+            st.markdown(empty("✅", "No appointments awaiting confirmation."),
+                        unsafe_allow_html=True)
+        else:
+            st.caption("Confirm whether each past appointment was attended. "
+                       "Completed = attended · Missed = no-show.")
+            for a in awaiting:
+                aid = a["appointment_id"]
+                with st.container(border=True):
+                    when = (a.get("start_time") or "")[:16].replace("T", " ")
+                    st.markdown(f"**#{aid} · {esc(a.get('department',''))} · "
+                                f"{esc(a.get('doctor',''))}**  \n"
+                                f"🕑 {esc(when)} — {esc(a.get('reason') or '')}")
+                    c1, c2 = st.columns(2)
+                    if c1.button("✓ Attended (complete)", key=f"att_{aid}",
+                                 type="primary", use_container_width=True):
+                        ok, _ = _safe(api.record_outcome, token, aid, True)
+                        if ok:
+                            st.success(f"Appointment #{aid} marked completed.")
+                            st.rerun()
+                    if c2.button("✗ Missed", key=f"miss_{aid}", use_container_width=True):
+                        ok, _ = _safe(api.record_outcome, token, aid, False)
+                        if ok:
+                            st.warning(f"Appointment #{aid} marked missed.")
+                            st.rerun()
+
     elif section == "Workflows":
-        page_head(crumb, "Workflows", "Every agent run, with its status and current step.")
-        st.markdown(workflows_html(data["wfs"]), unsafe_allow_html=True)
-
-    elif section == "Audit trail":
-        page_head(crumb, "Audit trail", "Append-only record of every action in the system.")
-        st.markdown(audit_html(data["audit"]), unsafe_allow_html=True)
-
-    elif section == "People":
         page_head(crumb, "People", "All staff and patients — and add new accounts.")
         users = data["users"]
         staff_users = [u for u in users if u.get("role") in ("staff", "admin")]

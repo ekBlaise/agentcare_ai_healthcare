@@ -80,5 +80,17 @@ def test_expire_past_appointments(setup):
     db.add(appt); db.commit()
     res = expire_past_appointments(db)
     db.refresh(appt)
-    assert appt.status == AppointmentStatus.COMPLETED
-    assert res["completed"] >= 1
+    # Past appointments await human confirmation of the real outcome (not auto-completed)
+    assert appt.status == AppointmentStatus.AWAITING_CONFIRMATION
+    assert res["awaiting_confirmation"] >= 1
+
+    # Staff records the actual outcome
+    from app.tools import record_appointment_outcome
+    r = record_appointment_outcome(db, appt.id, attended=True)
+    db.refresh(appt)
+    assert r["success"] and appt.status == AppointmentStatus.COMPLETED
+
+    # And a missed one
+    r2 = record_appointment_outcome(db, appt.id, attended=False)
+    db.refresh(appt)
+    assert appt.status == AppointmentStatus.MISSED
