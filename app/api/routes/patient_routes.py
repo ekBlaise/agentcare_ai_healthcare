@@ -4,7 +4,7 @@ and view OWN status. Patients can only ever see their own data (enforced here).
 """
 import base64
 
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -106,4 +106,48 @@ def upload_document(file: UploadFile = File(...),
     """Real multipart file upload -> classify + checksum-dedupe + store."""
     content = file.file.read()
     result = classify_and_store_document(db, profile.id, file.filename, content)
+    return result
+
+
+@router.get("/me/available-slots")
+def available_slots_for_appointment(appointment_id: int,
+                                    profile=Depends(current_patient_profile),
+                                    db: Session = Depends(get_db)):
+    """Open slots in the same department as an existing (own) appointment."""
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appt is None or appt.patient_id != profile.id:
+        # ownership enforced: never reveal or act on another patient's appointment
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    from app.tools import get_available_slots
+    dept_id = appt.doctor.department_id if appt.doctor else None
+    return get_available_slots(db, department_id=dept_id, limit=10)
+
+
+@router.post("/me/appointments/{appointment_id}/reschedule")
+def reschedule_own_appointment(appointment_id: int, new_slot_id: int,
+                               profile=Depends(current_patient_profile),
+                               db: Session = Depends(get_db)):
+    """Reschedule an appointment the caller owns (ownership enforced in backend)."""
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appt is None or appt.patient_id != profile.id:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    from app.tools import reschedule_appointment
+    result = reschedule_appointment(db, appointment_id, new_slot_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("error", "reschedule_failed"))
+    return result
+
+
+@router.post("/me/appointments/{appointment_id}/cancel")
+def cancel_own_appointment(appointment_id: int,
+                           profile=Depends(current_patient_profile),
+                           db: Session = Depends(get_db)):
+    """Cancel an appointment the caller owns (ownership enforced in backend)."""
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if appt is None or appt.patient_id != profile.id:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    from app.tools import cancel_appointment
+    result = cancel_appointment(db, appointment_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=409, detail=result.get("error", "cancel_failed"))
     return result

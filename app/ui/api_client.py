@@ -111,3 +111,22 @@ def create_user(token, name, email, password, role="staff", client=None):
     if r.status_code in (200, 201):
         return True, r.json()
     return False, {"detail": r.json().get("detail", "Could not create user")}
+
+
+def available_slots(token, appointment_id: int, client=None):
+    r = _client(client).get(f"/me/available-slots?appointment_id={appointment_id}",
+                            headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def reschedule_appointment(token, appointment_id: int, new_slot_id: int, client=None):
+    r = _client(client).post(
+        f"/me/appointments/{appointment_id}/reschedule?new_slot_id={new_slot_id}",
+        headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def cancel_appointment(token, appointment_id: int, client=None):
+    r = _client(client).post(f"/me/appointments/{appointment_id}/cancel",
+                             headers=_auth(token))
+    return r.status_code == 200, r.json()

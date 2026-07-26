@@ -765,6 +765,50 @@ def patient_section(section, token, data):
         page_head("Patient portal", "Appointments", "Every appointment booked for you.")
         st.markdown(appts_html(data["appts"]), unsafe_allow_html=True)
 
+        # Interactive management: reschedule / cancel active appointments.
+        active = [a for a in data["appts"]
+                  if a.get("status") in ("pending", "confirmed", "rescheduled")]
+        if active:
+            st.markdown(sec_header("Manage an appointment"), unsafe_allow_html=True)
+            labels = {f"#{a['appointment_id']} · {a.get('department','')} · "
+                      f"{(a.get('start_time') or '')[:16].replace('T',' ')}": a
+                      for a in active}
+            pick = st.selectbox("Select an appointment", list(labels.keys()),
+                                key="appt_pick")
+            aid = labels[pick]["appointment_id"]
+            col_r, col_c = st.columns(2)
+
+            with col_r:
+                ok, slots = _safe(api.available_slots, token, aid)
+                if ok and slots:
+                    slot_labels = {f"{s['doctor_name']} · "
+                                   f"{s['start_time'][:16].replace('T',' ')}": s["slot_id"]
+                                   for s in slots}
+                    new_slot = st.selectbox("Reschedule to", list(slot_labels.keys()),
+                                            key=f"slot_{aid}")
+                    if st.button("Reschedule", key=f"resc_{aid}", use_container_width=True):
+                        ok2, res = _safe(api.reschedule_appointment, token, aid,
+                                         slot_labels[new_slot])
+                        if ok2:
+                            st.success("Appointment rescheduled.")
+                            st.rerun()
+                        else:
+                            st.error(res.get("detail", "Could not reschedule."))
+                else:
+                    st.caption("No open slots to reschedule into right now.")
+
+            with col_c:
+                st.write("")
+                st.write("")
+                if st.button("Cancel appointment", key=f"canc_{aid}",
+                             use_container_width=True):
+                    ok2, res = _safe(api.cancel_appointment, token, aid)
+                    if ok2:
+                        st.success("Appointment cancelled.")
+                        st.rerun()
+                    else:
+                        st.error(res.get("detail", "Could not cancel."))
+
     elif section == "Documents":
         page_head("Patient portal", "Documents", "Documents on file, classified and de-duplicated.")
         st.markdown(docs_html(data["docs"]), unsafe_allow_html=True)

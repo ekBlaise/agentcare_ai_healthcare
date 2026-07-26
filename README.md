@@ -281,6 +281,9 @@ uvicorn app.api.main:app --reload
 | POST | `/requests` | patient+ | submit request -> runs the agent workflow |
 | GET | `/me/appointments` `/me/documents` `/me/reminders` `/me/escalations` | patient | view OWN data only |
 | POST | `/me/documents/upload` | patient | multipart file upload -> classify + dedupe |
+| GET | `/me/available-slots` | patient | open slots for one of your appointments |
+| POST | `/me/appointments/{id}/reschedule` | patient | reschedule your OWN appointment (ownership enforced) |
+| POST | `/me/appointments/{id}/cancel` | patient | cancel your OWN appointment (ownership enforced) |
 | GET | `/staff/escalations` | staff | list escalations |
 | POST | `/staff/escalations/{id}/review` | staff | approve/reject (persisted, audited) |
 | GET | `/staff/workflows` `/staff/workflows/{id}` | staff | inspect runs + persisted agent state |
@@ -333,7 +336,7 @@ Point the UI at a non-default backend with `AGENTCARE_API_BASE`.
 The UI's data layer is unit-tested against the live backend, proving the interface
 is genuinely wired (not displaying hardcoded data):
 ```bash
-pytest tests/test_ui_client.py tests/test_accounts.py -v
+pytest tests/test_ui_client.py tests/test_accounts.py tests/test_edge_cases.py -v
 ```
 
 ### Troubleshooting login (401)
@@ -355,6 +358,6 @@ logins authenticate.
 - [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
 - [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
 - [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
-- [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend — **28 tests passing**
-- [ ] Day 6 — hardening, edge cases, docs
+- [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend
+- [x] **Day 6** — hardening: reschedule/cancel endpoints with backend ownership enforcement, duplicate-doc + double-cancel edge cases, interactive appointment management in the UI — **32 tests passing**
 - [ ] Day 7 — demo video, deploy, submit
