@@ -11,6 +11,10 @@ secrets/
 *.sqlite3
 data/*.db
 data/*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
+data/agent_checkpoints.db*
 
 # Uploaded documents (no real patient files in repo)
 uploads/

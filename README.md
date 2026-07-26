@@ -130,9 +130,18 @@ erDiagram
 - **LLM:** Groq (`llama-3.3-70b-versatile`, free tier)
 - **Backend:** FastAPI (role-based access enforced server-side)
 - **Database:** SQLAlchemy → SQLite (dev) / PostgreSQL (prod)
-- **UI:** Streamlit (patient + staff views)
+- **UI:** Streamlit (patient / staff / admin — role-aware app shell)
 
 ---
+
+### Roles
+| Role | Can do |
+|------|--------|
+| **Patient** | Self-register, submit requests, upload documents, view own appointments / documents / reminders / escalations |
+| **Staff** | Review & approve/reject escalations, inspect workflows + agent state, view audit trail |
+| **Admin** | All staff actions + list/create accounts (People) and view departments |
+
+All role permissions are enforced in the backend (FastAPI dependencies), not by hiding UI.
 
 ## Setup
 
@@ -188,7 +197,7 @@ agentcare/
 │   ├── tools/           # agent tools (Day 2)
 │   ├── agents/          # LangGraph agents + graph (Day 3)
 │   ├── api/             # FastAPI backend + RBAC (Day 4)
-│   └── ui/              # Streamlit interface (Day 5)
+│   └── ui/              # Streamlit app-shell UI (patient/staff/admin)
 ├── tests/               # pytest suite
 ├── init_db.py           # create tables
 ├── seed.py              # synthetic seed data
@@ -268,16 +277,22 @@ uvicorn app.api.main:app --reload
 | Method | Path | Role | Purpose |
 |--------|------|------|---------|
 | POST | `/auth/login` | any | email + password -> JWT |
+| POST | `/auth/register` | public | patient self-registration -> JWT |
 | POST | `/requests` | patient+ | submit request -> runs the agent workflow |
-| GET | `/me/appointments` `/me/documents` `/me/reminders` | patient | view OWN data only |
+| GET | `/me/appointments` `/me/documents` `/me/reminders` `/me/escalations` | patient | view OWN data only |
 | POST | `/me/documents/upload` | patient | multipart file upload -> classify + dedupe |
 | GET | `/staff/escalations` | staff | list escalations |
 | POST | `/staff/escalations/{id}/review` | staff | approve/reject (persisted, audited) |
 | GET | `/staff/workflows` `/staff/workflows/{id}` | staff | inspect runs + persisted agent state |
 | GET | `/staff/audit` | staff | the audit trail |
+| GET | `/staff/departments` | staff | department + doctor counts |
+| GET | `/admin/users` | admin | list all accounts (filter by role) |
+| POST | `/admin/users` | admin | create a staff or patient account |
 
-RBAC is enforced in FastAPI dependencies: a patient token calling a `/staff/*`
-endpoint gets **403**, and missing tokens get **401** — verified by tests.
+RBAC is enforced in FastAPI dependencies across three roles (patient / staff /
+admin): a patient token calling a `/staff/*` or `/admin/*` endpoint gets **403**,
+a staff token calling `/admin/*` gets **403**, and missing tokens get **401** —
+all verified by tests.
 
 Run the API tests:
 ```bash
@@ -286,31 +301,47 @@ pytest tests/test_api.py -v
 
 ## User interface (Day 5)
 
-A Streamlit UI with **patient** and **staff** views, wired entirely to the
-FastAPI backend over HTTP — every value shown comes from a live API call.
+A polished **Streamlit** app wired entirely to the FastAPI backend over HTTP —
+every value shown comes from a live API call (`app/ui/api_client.py`). The layout
+is a three-region app shell: a role-aware sidebar (navigation + account), the main
+content area, and a contextual right panel (guidance, legends, the safety boundary
+reminder). Colors come from `.streamlit/config.toml` (native theme) plus a scoped
+CSS design system, so it renders reliably across Streamlit versions.
+
+**Three role-aware experiences**
+
+- **Patient** — sign in *or self-register*; submit an administrative request (runs
+  the agent workflow) and see the confirmation/escalation with the agent trace;
+  upload documents; and view own requests, appointments, documents, reminders, and
+  escalations.
+- **Staff** — review open escalations (approve/reject, persisted + audited),
+  inspect workflow runs and the persisted agent-state snapshot, and browse the
+  audit trail.
+- **Admin** — everything staff can do, plus **People**: list all accounts and
+  create new staff or patient users, and view departments.
 
 **Run it (two terminals):**
 ```bash
 # Terminal 1 — backend
 uvicorn app.api.main:app --reload
 
-# Terminal 2 — UI
+# Terminal 2 — UI (from the project root)
 streamlit run app/ui/streamlit_app.py
 ```
 Point the UI at a non-default backend with `AGENTCARE_API_BASE`.
 
-**Patient view** — submit an administrative request (runs the agent workflow),
-see the confirmation/escalation + agent trace, upload a document, and view own
-appointments, documents, and reminders.
-
-**Staff view** — review open escalations (approve/reject, persisted + audited),
-inspect workflow runs, and browse the audit trail.
-
-The UI's data layer (`app/ui/api_client.py`) is unit-tested against the live
-backend, proving the interface is genuinely wired (not displaying hardcoded data):
+The UI's data layer is unit-tested against the live backend, proving the interface
+is genuinely wired (not displaying hardcoded data):
 ```bash
-pytest tests/test_ui_client.py -v
+pytest tests/test_ui_client.py tests/test_accounts.py -v
 ```
+
+### Troubleshooting login (401)
+`401 Unauthorized` on login almost always means the API and `seed.py` used
+**different database files** (the `sqlite:///./data/...` path is relative to the
+launch directory). Run both `uvicorn` and `python seed.py` from the **project
+root**. A `diagnose.py` helper prints the resolved DB path and whether the demo
+logins authenticate.
 
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
@@ -324,6 +355,6 @@ pytest tests/test_ui_client.py -v
 - [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
 - [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
 - [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
-- [x] **Day 5** — Streamlit UI (patient + staff), wired to the backend (2 UI tests)
+- [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend — **28 tests passing**
 - [ ] Day 6 — hardening, edge cases, docs
 - [ ] Day 7 — demo video, deploy, submit
