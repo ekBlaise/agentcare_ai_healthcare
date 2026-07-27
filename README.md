@@ -1,7 +1,7 @@
 # AgentCare — Agentic AI for Patient Administration & Care Coordination
 
 An agentic healthcare **administration** system that coordinates a patient's
-non-clinical journey — registration → department routing → appointment booking →
+non-clinical journey: registration → department routing → appointment booking →
 document coordination → confirmation & reminders → follow-up — while keeping all
 medical decisions under human supervision.
 
