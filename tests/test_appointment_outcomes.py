@@ -118,6 +118,7 @@ def test_staff_sees_upcoming_schedule(client_and_appt):
     r = client.get("/staff/appointments?status=upcoming", headers=_auth(stok))
     assert r.status_code == 200
     rows = r.json()
-    # all returned appointments must be future + active
+    # all returned appointments must be future + active AND identify the patient
     for a in rows:
         assert a["status"] in ("pending", "confirmed", "rescheduled")
+        assert "patient_name" in a and "patient_email" in a

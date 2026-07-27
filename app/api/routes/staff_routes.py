@@ -150,9 +150,22 @@ def list_appointments(status: str = "awaiting_confirmation",
         q = q.order_by(Appointment.created_at.desc())
 
     rows = q.all()
+
+    def _patient_name(a):
+        if a.patient and a.patient.user:
+            return a.patient.user.name
+        return None
+
+    def _patient_email(a):
+        if a.patient and a.patient.user:
+            return a.patient.user.email
+        return None
+
     return [{
         "appointment_id": a.id,
         "patient_id": a.patient_id,
+        "patient_name": _patient_name(a),
+        "patient_email": _patient_email(a),
         "status": a.status.value,
         "doctor": a.doctor.name if a.doctor else None,
         "department": a.doctor.department.name if a.doctor and a.doctor.department else None,

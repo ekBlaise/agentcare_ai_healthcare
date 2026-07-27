@@ -372,10 +372,17 @@ def appts_html(appts):
         return empty("📅", "No appointments yet. Submit a request to book one.")
     out = ""
     for a in appts:
+        # Staff view includes patient_name; patient view does not.
+        patient_line = ""
+        if a.get("patient_name"):
+            patient_line = (f'<div class="s">👤 {esc(a["patient_name"])}'
+                            f'{" · " + esc(a["patient_email"]) if a.get("patient_email") else ""}'
+                            f'</div>')
         out += (
             f'<div class="ac-item"><div>'
             f'<div class="t">{esc(a.get("department") or "Appointment")}'
             f'{" · " + esc(a["doctor"]) if a.get("doctor") else ""}</div>'
+            f'{patient_line}'
             f'<div class="s">🕑 {esc(fmt_dt(a.get("start_time")))}'
             f'{" — " + esc(a["reason"]) if a.get("reason") else ""}</div></div>'
             f'<div class="r">{pill(a.get("status") or "—")}'
@@ -973,8 +980,11 @@ def staff_section(section, token, data, role):
                     aid = a["appointment_id"]
                     with st.container(border=True):
                         when = (a.get("start_time") or "")[:16].replace("T", " ")
+                        patient = a.get("patient_name") or f"Patient #{a.get('patient_id','')}"
                         st.markdown(f"**#{aid} · {esc(a.get('department',''))} · "
                                     f"{esc(a.get('doctor',''))}**  \n"
+                                    f"👤 {esc(patient)}"
+                                    f"{' · ' + esc(a['patient_email']) if a.get('patient_email') else ''}  \n"
                                     f"🕑 {esc(when)} — {esc(a.get('reason') or '')}")
                         c1, c2 = st.columns(2)
                         if c1.button("✓ Attended (complete)", key=f"att_{aid}",
