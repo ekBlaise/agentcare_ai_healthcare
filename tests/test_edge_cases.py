@@ -224,3 +224,44 @@ def test_duplicate_department_appointment_prevented():
     prof = db.query(PatientProfile).join(User).filter(User.email == "duppat@example.com").first()
     assert db.query(Appointment).filter_by(patient_id=prof.id).count() == 1
     db.close()
+
+
+def test_reschedule_does_not_conflict_with_itself():
+    """An appointment must not block its own reschedule (same-time / different
+    doctor), but must still be blocked from moving onto ANOTHER appointment's time."""
+    from app.database import init_db, SessionLocal
+    from app.models import Department, Doctor, AppointmentSlot, SlotStatus
+    from app.tools import find_or_create_patient, book_appointment, reschedule_appointment
+    from datetime import datetime, timedelta, timezone
+    init_db()
+    db = SessionLocal()
+    dept = db.query(Department).filter_by(name="SelfConflictDept").first()
+    if dept is None:
+        dept = Department(name="SelfConflictDept", description="x", active=True)
+        db.add(dept); db.flush()
+        d1 = Doctor(department_id=dept.id, name="Dr One", active=True)
+        d2 = Doctor(department_id=dept.id, name="Dr Two", active=True)
+        db.add_all([d1, d2]); db.flush()
+    else:
+        d1, d2 = db.query(Doctor).filter_by(department_id=dept.id).limit(2).all()
+    now = datetime.now(timezone.utc)
+    t9 = now + timedelta(days=50)
+    t11 = now + timedelta(days=50, hours=2)
+    s9 = AppointmentSlot(doctor_id=d1.id, start_time=t9, end_time=t9 + timedelta(minutes=30), status=SlotStatus.OPEN)
+    s9b = AppointmentSlot(doctor_id=d2.id, start_time=t9, end_time=t9 + timedelta(minutes=30), status=SlotStatus.OPEN)
+    s11 = AppointmentSlot(doctor_id=d1.id, start_time=t11, end_time=t11 + timedelta(minutes=30), status=SlotStatus.OPEN)
+    s11b = AppointmentSlot(doctor_id=d2.id, start_time=t11, end_time=t11 + timedelta(minutes=30), status=SlotStatus.OPEN)
+    db.add_all([s9, s9b, s11, s11b]); db.commit()
+
+    p = find_or_create_patient(db, "Self Conflict", "selfconflict@example.com")
+    a1 = book_appointment(db, p["patient_id"], s9.id)
+
+    # reschedule onto the SAME time with a different doctor -> allowed (no self-conflict)
+    r_same = reschedule_appointment(db, a1["appointment_id"], s9b.id)
+    assert r_same["success"] is True
+
+    # now book a SECOND appointment at 11:00, then try to move the first onto it -> blocked
+    a2 = book_appointment(db, p["patient_id"], s11.id)
+    r_clash = reschedule_appointment(db, a1["appointment_id"], s11b.id)
+    assert r_clash["success"] is False and r_clash["error"] == "patient_time_conflict"
+    db.close()

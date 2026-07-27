@@ -61,9 +61,15 @@ def get_available_slots(
     return results
 
 
-def _patient_has_conflict(db: Session, patient_id: int, start: datetime, end: datetime) -> bool:
-    """True if the patient already has an active appointment overlapping [start, end)."""
-    active = (
+def _patient_has_conflict(db: Session, patient_id: int, start: datetime, end: datetime,
+                          exclude_appointment_id: int | None = None) -> bool:
+    """True if the patient already has an active appointment overlapping [start, end).
+
+    exclude_appointment_id lets a reschedule ignore the appointment being moved, so
+    an appointment never conflicts with itself (e.g. rescheduling within the same
+    time window, or to a different doctor at the same time).
+    """
+    q = (
         db.query(Appointment)
         .join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
         .filter(
@@ -76,9 +82,10 @@ def _patient_has_conflict(db: Session, patient_id: int, start: datetime, end: da
             # overlap test: existing.start < new.end AND existing.end > new.start
             and_(AppointmentSlot.start_time < end, AppointmentSlot.end_time > start),
         )
-        .first()
     )
-    return active is not None
+    if exclude_appointment_id is not None:
+        q = q.filter(Appointment.id != exclude_appointment_id)
+    return q.first() is not None
 
 
 def book_appointment(
@@ -148,7 +155,8 @@ def reschedule_appointment(db: Session, appointment_id: int, new_slot_id: int) -
     if new_slot is None or new_slot.status != SlotStatus.OPEN:
         return {"success": False, "error": "new_slot_unavailable"}
 
-    if _patient_has_conflict(db, appt.patient_id, new_slot.start_time, new_slot.end_time):
+    if _patient_has_conflict(db, appt.patient_id, new_slot.start_time, new_slot.end_time,
+                             exclude_appointment_id=appt.id):
         return {"success": False, "error": "patient_time_conflict"}
 
     old_slot = db.query(AppointmentSlot).filter(AppointmentSlot.id == appt.slot_id).first()
