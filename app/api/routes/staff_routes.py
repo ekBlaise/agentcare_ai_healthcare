@@ -170,3 +170,78 @@ def record_outcome(appointment_id: int, attended: bool,
     if not result.get("success"):
         raise HTTPException(status_code=409, detail=result.get("error", "record_failed"))
     return result
+
+
+@router.get("/analytics")
+def analytics(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """
+    Operational analytics computed live from persisted data (no hardcoded values):
+    appointment status mix, escalation breakdown, department load, workflow
+    outcomes, document stats, and headline KPIs.
+    """
+    from sqlalchemy import func
+    from app.models import (
+        Appointment, AppointmentStatus, Escalation, EscalationStatus,
+        WorkflowRun, WorkflowStatus, Department, Doctor, PatientDocument,
+        PatientProfile, Reminder,
+    )
+
+    def _counts(rows):
+        return {str(k.value if hasattr(k, "value") else k): int(v) for k, v in rows}
+
+    # Appointment status mix
+    appt_rows = (db.query(Appointment.status, func.count(Appointment.id))
+                 .group_by(Appointment.status).all())
+    appt_by_status = _counts(appt_rows)
+
+    # Escalations by category and by status
+    esc_cat = _counts(db.query(Escalation.category, func.count(Escalation.id))
+                      .group_by(Escalation.category).all())
+    esc_status = _counts(db.query(Escalation.status, func.count(Escalation.id))
+                         .group_by(Escalation.status).all())
+
+    # Department load: appointments per department
+    dept_rows = (db.query(Department.name, func.count(Appointment.id))
+                 .select_from(Appointment)
+                 .join(Doctor, Appointment.doctor_id == Doctor.id)
+                 .join(Department, Doctor.department_id == Department.id)
+                 .group_by(Department.name)
+                 .order_by(func.count(Appointment.id).desc())
+                 .all())
+    dept_load = [{"department": n, "appointments": int(c)} for n, c in dept_rows]
+
+    # Workflow outcomes
+    wf_status = _counts(db.query(WorkflowRun.status, func.count(WorkflowRun.id))
+                        .group_by(WorkflowRun.status).all())
+
+    # Documents
+    total_docs = db.query(func.count(PatientDocument.id)).scalar() or 0
+    doc_types = _counts(db.query(PatientDocument.document_type, func.count(PatientDocument.id))
+                        .group_by(PatientDocument.document_type).all())
+
+    # Headline KPIs
+    total_appts = sum(appt_by_status.values())
+    completed = appt_by_status.get("completed", 0)
+    missed = appt_by_status.get("missed", 0)
+    finished = completed + missed
+    attendance_rate = round(100 * completed / finished, 1) if finished else None
+    open_escalations = esc_status.get("open", 0)
+    total_patients = db.query(func.count(PatientProfile.id)).scalar() or 0
+    total_reminders = db.query(func.count(Reminder.id)).scalar() or 0
+
+    return {
+        "kpis": {
+            "total_appointments": total_appts,
+            "total_patients": total_patients,
+            "open_escalations": open_escalations,
+            "attendance_rate_pct": attendance_rate,   # completed / (completed+missed)
+            "total_documents": total_docs,
+            "total_reminders": total_reminders,
+        },
+        "appointments_by_status": appt_by_status,
+        "escalations_by_category": esc_cat,
+        "escalations_by_status": esc_status,
+        "department_load": dept_load,
+        "workflows_by_status": wf_status,
+        "documents_by_type": doc_types,
+    }

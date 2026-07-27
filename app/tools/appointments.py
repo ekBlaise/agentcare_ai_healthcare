@@ -259,3 +259,39 @@ def record_appointment_outcome(db: Session, appointment_id: int, attended: bool,
                 entity_id=appt.id, actor_id=actor_id, actor_type="staff",
                 metadata={"attended": attended, "status": appt.status.value})
     return {"success": True, "appointment_id": appt.id, "status": appt.status.value}
+
+
+def find_active_department_appointment(db: Session, patient_id: int,
+                                       department_id: int) -> dict | None:
+    """
+    Return an existing UPCOMING active appointment for this patient in the given
+    department, if one exists. Used to avoid creating duplicate bookings for the
+    same patient + department (e.g. the same request submitted twice).
+    """
+    now = _now()
+    appt = (
+        db.query(Appointment)
+        .join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+        .join(Doctor, Appointment.doctor_id == Doctor.id)
+        .filter(
+            Appointment.patient_id == patient_id,
+            Doctor.department_id == department_id,
+            Appointment.status.in_([
+                AppointmentStatus.PENDING,
+                AppointmentStatus.CONFIRMED,
+                AppointmentStatus.RESCHEDULED,
+            ]),
+            AppointmentSlot.start_time >= now,
+        )
+        .order_by(AppointmentSlot.start_time.asc())
+        .first()
+    )
+    if appt is None:
+        return None
+    return {
+        "appointment_id": appt.id,
+        "status": appt.status.value,
+        "doctor_id": appt.doctor_id,
+        "slot_id": appt.slot_id,
+        "start_time": appt.slot.start_time.isoformat() if appt.slot else None,
+    }

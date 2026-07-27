@@ -25,7 +25,10 @@ streamlit==1.41.1            # patient + staff user-facing interface
 
 # Utilities
 python-dotenv==1.0.1         # load local .env
-httpx==0.28.1                # Streamlit → FastAPI calls
+httpx==0.28.1                # Streamlit -> FastAPI calls
+
+# Testing
+mcp>=1.2.0                    # Model Context Protocol server (hospital tool server)
 
 # Testing
 pytest==8.3.4

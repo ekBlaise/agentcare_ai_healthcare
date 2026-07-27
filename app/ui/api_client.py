@@ -142,3 +142,8 @@ def record_outcome(token, appointment_id: int, attended: bool, client=None):
         f"/staff/appointments/{appointment_id}/outcome?attended={str(attended).lower()}",
         headers=_auth(token))
     return r.status_code == 200, r.json()
+
+
+def analytics(token, client=None):
+    r = _client(client).get("/staff/analytics", headers=_auth(token))
+    return r.status_code == 200, r.json()

@@ -3,7 +3,10 @@ Appointment Agent — retrieves availability, checks conflicts, and books a slot
 in the routed department. Purely tool-driven (deterministic, persisted).
 """
 from app.database import SessionLocal
-from app.tools import get_available_slots, book_appointment, write_audit, expire_past_appointments
+from app.tools import (
+    get_available_slots, book_appointment, write_audit, expire_past_appointments,
+    find_active_department_appointment,
+)
 
 
 def appointment_agent(state: dict) -> dict:
@@ -19,6 +22,27 @@ def appointment_agent(state: dict) -> dict:
 
         # Self-healing: expire any past appointments/slots before offering times.
         expire_past_appointments(db)
+
+        # Duplicate guard: if the patient already has an upcoming appointment in
+        # this department, don't book another one for what is effectively the same
+        # need. Surface the existing appointment instead.
+        existing = find_active_department_appointment(db, patient_id, dept_id)
+        if existing:
+            dept_name = state.get("department_name", "this department")
+            msgs.append(f"Appointment: you already have an upcoming "
+                        f"{dept_name} appointment (#{existing['appointment_id']}); "
+                        f"not creating a duplicate.")
+            write_audit(db, action="duplicate_appointment_avoided",
+                        entity_type="appointment", entity_id=existing["appointment_id"],
+                        metadata={"patient_id": patient_id, "department_id": dept_id})
+            return {
+                "appointment_id": existing["appointment_id"],
+                "appointment_status": existing["status"],
+                "booked_slot": {"slot_id": existing["slot_id"],
+                                "start_time": existing["start_time"]},
+                "duplicate_prevented": True,
+                "messages": msgs,
+            }
 
         slots = get_available_slots(db, department_id=dept_id, limit=10)
         if not slots:

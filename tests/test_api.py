@@ -44,7 +44,7 @@ def client():
     # ensure there are open slots to book
     if db.query(AppointmentSlot).filter_by(doctor_id=doc.id, status=SlotStatus.OPEN).count() < 2:
         base = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=2)
-        for i in range(6):
+        for i in range(12):
             st = base + timedelta(hours=3*i)
             db.add(AppointmentSlot(doctor_id=doc.id, start_time=st,
                                    end_time=st+timedelta(minutes=30), status=SlotStatus.OPEN))

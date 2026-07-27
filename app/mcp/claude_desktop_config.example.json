@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agentcare": {
+      "command": "python",
+      "args": ["-m", "app.mcp.server"],
+      "cwd": "/absolute/path/to/agentcare_ai_healthcare"
+    }
+  }
+}

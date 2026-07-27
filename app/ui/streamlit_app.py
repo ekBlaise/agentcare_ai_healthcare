@@ -49,10 +49,10 @@ NAV = {
     "patient": [("Overview", "🏠"), ("New request", "➕"), ("My requests", "📨"),
                 ("Appointments", "📅"), ("Documents", "📄"), ("Reminders", "🔔")],
     "staff":   [("Overview", "🏠"), ("Escalations", "⚠️"), ("Appointments", "📅"),
-                ("Workflows", "🗂️"), ("Audit trail", "🧾")],
+                ("Analytics", "📊"), ("Workflows", "🗂️"), ("Audit trail", "🧾")],
     "admin":   [("Overview", "🏠"), ("People", "👥"), ("Escalations", "⚠️"),
-                ("Appointments", "📅"), ("Workflows", "🗂️"), ("Audit trail", "🧾"),
-                ("Departments", "🏥")],
+                ("Appointments", "📅"), ("Analytics", "📊"), ("Workflows", "🗂️"),
+                ("Audit trail", "🧾"), ("Departments", "🏥")],
 }
 
 
@@ -342,6 +342,7 @@ def load_staff(token, role):
     oau, au = _safe(api.audit_trail, token, limit=100)
     oap, ap = _safe(api.list_appointments, token, status="awaiting_confirmation")
     oup, up = _safe(api.list_appointments, token, status="upcoming")
+    oan, an = _safe(api.analytics, token)
     data = {
         "ok": bool(oe and ow and oau),
         "escs": e if oe and isinstance(e, list) else [],
@@ -349,6 +350,7 @@ def load_staff(token, role):
         "audit": au if oau and isinstance(au, list) else [],
         "appts": ap if oap and isinstance(ap, list) else [],
         "upcoming": up if oup and isinstance(up, list) else [],
+        "analytics": an if oan and isinstance(an, dict) else {},
         "depts": [],
         "users": [],
     }
@@ -957,7 +959,67 @@ def staff_section(section, token, data, role):
                                 st.warning(f"Appointment #{aid} marked missed.")
                                 st.rerun()
 
+    elif section == "Analytics":
+        page_head(crumb, "Analytics",
+                  "Operational metrics computed live from persisted data.")
+        a = data.get("analytics", {})
+        if not a:
+            st.markdown(empty("📊", "No analytics available yet."), unsafe_allow_html=True)
+        else:
+            import pandas as pd
+            k = a.get("kpis", {})
+            att = k.get("attendance_rate_pct")
+            st.markdown(kpis([
+                (k.get("total_appointments", 0), "Appointments", "📅"),
+                (k.get("total_patients", 0), "Patients", "🧑"),
+                (k.get("open_escalations", 0), "Open escalations", "⚠️"),
+                (f"{att}%" if att is not None else "—", "Attendance rate", "✅"),
+            ]), unsafe_allow_html=True)
+            st.markdown(kpis([
+                (k.get("total_documents", 0), "Documents", "📄"),
+                (k.get("total_reminders", 0), "Reminders", "🔔"),
+            ]), unsafe_allow_html=True)
+
+            def _bar(title, mapping, xlabel):
+                st.markdown(sec_header(title), unsafe_allow_html=True)
+                if mapping:
+                    df = pd.DataFrame(
+                        {xlabel: [str(x).replace("_", " ").title() for x in mapping.keys()],
+                         "Count": list(mapping.values())}).set_index(xlabel)
+                    st.bar_chart(df, height=240)
+                else:
+                    st.caption("No data yet.")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                _bar("Appointments by status", a.get("appointments_by_status", {}), "Status")
+            with c2:
+                _bar("Workflows by status", a.get("workflows_by_status", {}), "Status")
+            c3, c4 = st.columns(2)
+            with c3:
+                _bar("Escalations by category", a.get("escalations_by_category", {}), "Category")
+            with c4:
+                _bar("Documents by type", a.get("documents_by_type", {}), "Type")
+
+            st.markdown(sec_header("Department load"), unsafe_allow_html=True)
+            dl = a.get("department_load", [])
+            if dl:
+                df = pd.DataFrame(dl).rename(
+                    columns={"department": "Department", "appointments": "Appointments"}
+                ).set_index("Department")
+                st.bar_chart(df, height=280)
+            else:
+                st.caption("No appointments booked yet.")
+
     elif section == "Workflows":
+        page_head(crumb, "Workflows", "Every agent run, with its status and current step.")
+        st.markdown(workflows_html(data["wfs"]), unsafe_allow_html=True)
+
+    elif section == "Audit trail":
+        page_head(crumb, "Audit trail", "Append-only record of every action in the system.")
+        st.markdown(audit_html(data["audit"]), unsafe_allow_html=True)
+
+    elif section == "People":
         page_head(crumb, "People", "All staff and patients — and add new accounts.")
         users = data["users"]
         staff_users = [u for u in users if u.get("role") in ("staff", "admin")]

@@ -346,6 +346,32 @@ launch directory). Run both `uvicorn` and `python seed.py` from the **project
 root**. A `diagnose.py` helper prints the resolved DB path and whether the demo
 logins authenticate.
 
+## Optional extensions
+
+Beyond the core requirements, AgentCare includes:
+
+- **Consent management** — patients grant/revoke consent (document storage, data
+  processing, communications) from a Privacy page. Consent is persisted, audited,
+  and *enforced*: the Document Agent refuses to store attachments when
+  document-storage consent is revoked. New patients start with defaults granted.
+- **MCP hospital tool server** — `app/mcp/server.py` exposes the real hospital
+  tools over the Model Context Protocol (12 tools: departments, availability,
+  register, book/reschedule/cancel, documents, reminders, audit). Any MCP client
+  (e.g. Claude Desktop) can drive the hospital directly. These are the same
+  DB-backed tools the internal agents use. Run with `python -m app.mcp.server`;
+  see `app/mcp/claude_desktop_config.example.json`.
+- **Analytics dashboard** (staff/admin) — `GET /staff/analytics` aggregates live
+  persisted data into KPIs (appointments, patients, open escalations, attendance
+  rate, documents, reminders) and charts (appointments by status, workflows by
+  status, escalations by category, documents by type, department load). Nothing
+  is hardcoded; every number is computed from the database.
+- **Staff schedule view** — upcoming appointments, earliest first.
+- **Duplicate-booking prevention** — if a patient already has an upcoming
+  appointment in the same department, a repeat request reuses it instead of
+  creating a duplicate (any attached document is still stored).
+- **Appointment outcome lifecycle** — past appointments await staff confirmation
+  (attended -> completed / no-show -> missed), with distinct status colors.
+
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
 - Secrets live only in a local, gitignored `.env`; `.env.example` ships without values.
@@ -360,4 +386,4 @@ logins authenticate.
 - [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
 - [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend
 - [x] **Day 6** — hardening: reschedule/cancel endpoints with backend ownership enforcement, duplicate-doc + double-cancel edge cases, interactive appointment management in the UI
-- [x] **Day 7** — safety false-positive fix, lifespan migration, empty-request guard, past-slot protection, full appointment lifecycle (confirmed -> awaiting confirmation -> completed/missed) with staff outcome recording and distinct status colors — staff upcoming-schedule view, **52 tests passing**
+- [x] **Day 7** — safety false-positive fix, lifespan migration, empty-request guard, past-slot protection, full appointment lifecycle (confirmed -> awaiting confirmation -> completed/missed) with staff outcome recording and distinct status colors — staff upcoming-schedule view, **61 tests passing**

@@ -31,6 +31,7 @@ class AgentState(TypedDict, total=False):
     appointment_id: Optional[int]
     appointment_status: Optional[str]
     booked_slot: Optional[Dict[str, Any]]
+    duplicate_prevented: bool
 
     # ── Documents ────────────────────────────────────────────────────────
     stored_documents: List[Dict[str, Any]]

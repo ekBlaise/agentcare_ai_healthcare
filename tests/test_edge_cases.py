@@ -161,13 +161,62 @@ def test_agent_skips_conflicting_slots_and_books_next():
     from app.agents import build_graph
     graph = build_graph(checkpointer=None)
     booked = []
-    for _ in range(3):   # rapid successive bookings, same patient
+    # THREE DIFFERENT patients booking the same department -> three distinct
+    # appointments on successive open slots (tests slot-skipping without tripping
+    # the same-patient duplicate guard).
+    for i in range(3):
         final = graph.invoke(
             {"request": "neurology follow-up next week",
-             "patient_input": {"name": "Multi", "email": "multi@example.com"},
+             "patient_input": {"name": f"Multi{i}", "email": f"multi{i}@example.com"},
              "documents_input": [], "messages": [], "status": "running"},
             config={"configurable": {"thread_id": f"t-{uuid.uuid4().hex[:8]}"}})
         assert final["status"] == "completed"
         assert final.get("appointment_id") is not None
         booked.append(final["appointment_id"])
-    assert len(set(booked)) == 3   # three distinct appointments, no crash, no conflict failure
+    assert len(set(booked)) == 3   # three distinct appointments, different slots
+
+
+def test_duplicate_department_appointment_prevented():
+    """Submitting the same request twice must not create two appointments in the
+    same department; the second reuses the first, and any document still attaches."""
+    import uuid
+    from app.database import init_db, SessionLocal
+    from app.models import (Department, Doctor, AppointmentSlot, SlotStatus,
+                            Appointment, PatientProfile, User)
+    from datetime import datetime, timedelta, timezone
+    init_db()
+    db = SessionLocal()
+    dept = db.query(Department).filter_by(name="DupDept").first()
+    if dept is None:
+        dept = Department(name="DupDept", description="x", active=True)
+        db.add(dept); db.flush()
+        doc = Doctor(department_id=dept.id, name="Dr Dup", active=True)
+        db.add(doc); db.flush()
+        base = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=15)
+        for i in range(6):
+            st = base + timedelta(hours=3 * i)
+            db.add(AppointmentSlot(doctor_id=doc.id, start_time=st,
+                                   end_time=st + timedelta(minutes=30), status=SlotStatus.OPEN))
+        db.commit()
+    db.close()
+
+    from app.agents import build_graph
+    graph = build_graph(checkpointer=None)
+
+    def submit(docs=None):
+        return graph.invoke(
+            {"request": "dupdept please, i need an appointment",
+             "patient_input": {"name": "DupPat", "email": "duppat@example.com"},
+             "documents_input": docs or [], "messages": [], "status": "running"},
+            config={"configurable": {"thread_id": f"t-{uuid.uuid4().hex[:8]}"}})
+
+    f1 = submit()
+    f2 = submit([{"filename": "scan.pdf", "content": b"DUP-SCAN"}])
+    # Both requests resolve to the SAME appointment (no duplicate)
+    assert f1.get("appointment_id") == f2.get("appointment_id")
+    assert f2.get("duplicate_prevented") is True
+
+    db = SessionLocal()
+    prof = db.query(PatientProfile).join(User).filter(User.email == "duppat@example.com").first()
+    assert db.query(Appointment).filter_by(patient_id=prof.id).count() == 1
+    db.close()
