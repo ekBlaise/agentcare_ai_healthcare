@@ -27,7 +27,11 @@ def client():
             u = User(name=email.split("@")[0], email=email,
                      password_hash=hash_password("secret1"), role=UserRole.PATIENT)
             db.add(u); db.flush()
-            db.add(PatientProfile(user_id=u.id, preferred_language="English"))
+            prof = PatientProfile(user_id=u.id, preferred_language="English")
+            db.add(prof); db.flush()
+            from app.tools import set_consent
+            for ct in ("document_storage", "data_processing", "communications"):
+                set_consent(db, prof.id, ct, True)
     ensure_patient("edge1@example.com")
     ensure_patient("edge2@example.com")
     db.commit()

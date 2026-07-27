@@ -16,9 +16,6 @@ medical decisions under human supervision.
 
 ## Architecture
 
-> Diagrams render on GitHub natively and in VS Code with the
-> **Markdown Preview Mermaid Support** extension.
-
 ### Agent orchestration flow
 
 ```mermaid
@@ -55,38 +52,45 @@ flowchart TD
 ### Layered system architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph UI[User Interface - Streamlit]
+        direction LR
         PV[Patient view]
         SV[Staff view]
+        AV[Admin view]
     end
 
     subgraph API[Backend - FastAPI]
+        direction LR
         RBAC[Role-based access control]
         ROUTES[Request + escalation endpoints]
     end
 
     subgraph GRAPH[Orchestration - LangGraph]
+        direction LR
         NODES[Agent nodes]
         STATE[Workflow state + SQL checkpointer]
     end
 
     subgraph TOOLS[Tools - real DB logic]
+        direction LR
         T1[patients / departments]
         T2[appointments + conflicts]
         T3[documents + dedupe]
-        T4[reminders / escalations / audit]
+        T4[reminders / escalations / audit / consent]
     end
 
     subgraph DB[Persistent SQL database]
+        direction LR
         D1[patients, departments, doctors, slots]
-        D2[appointments, documents]
+        D2[appointments, documents, consents]
         D3[workflow_runs, reminders, escalations, audit_events]
     end
 
     LLM[Groq LLM]
 
-    UI --> API --> GRAPH
+    UI --> API
+    API --> GRAPH
     GRAPH --> NODES
     NODES --> LLM
     NODES --> TOOLS
@@ -101,10 +105,11 @@ flowchart LR
 | **Safety & Escalation** | Blocks diagnosis/prescription, escalates emergencies |
 | **Department Routing** | Classifies request, maps to a department, handles uncertainty |
 | **Appointment** | Slots, conflict checks, book / reschedule / cancel, persists |
-| **Document** | Classify, checksum, dedupe, patient-mapping, missing-doc checks |
-| **Follow-up** | Reminders and post-visit follow-up tasks |
+| **Document** | Classify, checksum, dedupe, patient-mapping, missing-doc checks; consent-gated storage |
+| **Follow-up** | Reminders and post-visit follow-up tasks (idempotent) |
 
-> Full architecture write-up — agent distinctness, state handoff, safety, and tools — is in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+> Every agent has its own system prompt and a deterministic offline fallback, so
+> the full graph runs end-to-end without an API key (`AGENTCARE_FAKE_LLM=1`).
 
 ### Data model (entity relationships)
 
@@ -115,6 +120,7 @@ erDiagram
     PatientProfile ||--o{ PatientDocument : owns
     PatientProfile ||--o{ WorkflowRun : initiates
     PatientProfile ||--o{ Reminder : receives
+    PatientProfile ||--o{ Consent : grants
     Department ||--o{ Doctor : employs
     Doctor ||--o{ AppointmentSlot : offers
     AppointmentSlot ||--o| Appointment : fills
@@ -137,8 +143,8 @@ erDiagram
 ### Roles
 | Role | Can do |
 |------|--------|
-| **Patient** | Self-register, submit requests, upload documents, view own appointments / documents / reminders / escalations |
-| **Staff** | Review & approve/reject escalations, inspect workflows + agent state, view audit trail |
+| **Patient** | Self-register, submit requests, upload documents, reschedule/cancel own appointments, manage privacy consents, view own appointments / documents / reminders / escalations |
+| **Staff** | Review & approve/reject escalations, view upcoming schedule + record appointment outcomes (attended/missed), see analytics, inspect workflows + agent state, view audit trail |
 | **Admin** | All staff actions + list/create accounts (People) and view departments |
 
 All role permissions are enforced in the backend (FastAPI dependencies), not by hiding UI.
@@ -147,7 +153,7 @@ All role permissions are enforced in the backend (FastAPI dependencies), not by 
 
 ### 1. Clone & create a virtual environment
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ekBlaise/agentcare_ai_healthcare.git
 cd agentcare
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -172,7 +178,7 @@ python seed.py        # load synthetic departments, doctors, slots, demo users
 
 ### 5. Run tests
 ```bash
-pytest -q
+pytest -q      # 64 tests, offline (no API key needed)
 ```
 
 ### Demo logins (synthetic)
@@ -182,49 +188,104 @@ pytest -q
 | Staff | staff@agentcare.local | staff123 |
 | Patient | patient@agentcare.local | patient123 |
 
-*(Backend / UI run commands are added on Day 4–5.)*
-
 ---
 
 ## Project structure
 ```
 agentcare/
 ├── app/
-│   ├── config.py        # environment-based configuration
-│   ├── database.py      # SQLAlchemy engine + session
-│   ├── models.py        # all ORM models (persistent SQL schema)
-│   ├── security.py      # password hashing
-│   ├── tools/           # agent tools (Day 2)
-│   ├── agents/          # LangGraph agents + graph (Day 3)
-│   ├── api/             # FastAPI backend + RBAC (Day 4)
-│   └── ui/              # Streamlit app-shell UI (patient/staff/admin)
-├── tests/               # pytest suite
-├── init_db.py           # create tables
-├── seed.py              # synthetic seed data
+│   ├── config.py                  # environment-based configuration
+│   ├── database.py                # SQLAlchemy engine + session
+│   ├── models.py                  # all ORM models (persistent SQL schema)
+│   ├── security.py                # password hashing (bcrypt)
+│   │
+│   ├── tools/                     # real DB-backed agent tools
+│   │   ├── audit.py               # append-only audit log
+│   │   ├── patients.py            # find/create patient (grants default consents)
+│   │   ├── departments.py         # department lookup + listing
+│   │   ├── appointments.py        # slots, conflict checks, book/reschedule/cancel,
+│   │   │                          #   past-slot guard, outcome + expiry, duplicate guard
+│   │   ├── documents.py           # classify + store (SHA-256 dedupe), missing-doc check
+│   │   ├── reminders.py           # reminders/follow-ups (idempotent, cancel-on-change)
+│   │   ├── escalations.py         # human-review escalations
+│   │   └── consents.py            # consent grant/revoke/check (enforced at storage)
+│   │
+│   ├── agents/                    # LangGraph agents + orchestration
+│   │   ├── state.py               # AgentState (typed workflow state)
+│   │   ├── llm.py                 # Groq wrapper + offline fake-LLM mode
+│   │   ├── coordinator.py         # entry: resolves patient, opens WorkflowRun
+│   │   ├── safety.py              # emergency / clinical-advice classification
+│   │   ├── routing.py             # department routing (avoids diagnosis language)
+│   │   ├── appointment.py         # availability, conflicts, booking
+│   │   ├── document.py            # document coordination (consent-gated)
+│   │   ├── followup.py            # reminders + post-visit follow-up
+│   │   ├── finalize.py            # escalate / confirm from persisted records
+│   │   └── graph.py               # StateGraph wiring + SQL checkpointer
+│   │
+│   ├── api/                       # FastAPI backend
+│   │   ├── main.py                # app + lifespan + global error handling
+│   │   ├── auth.py                # JWT auth
+│   │   ├── deps.py                # RBAC dependencies (patient/staff/admin)
+│   │   ├── schemas.py             # request/response models
+│   │   ├── service.py             # graph singleton + retry
+│   │   └── routes/
+│   │       ├── auth_routes.py     # login + public registration
+│   │       ├── patient_routes.py  # requests, appointments, documents, consents
+│   │       ├── staff_routes.py    # escalations, workflows, audit, analytics, outcomes
+│   │       └── admin_routes.py    # user management
+│   │
+│   ├── mcp/                       # Model Context Protocol server
+│   │   ├── server.py              # 12 hospital tools exposed over MCP
+│   │   └── claude_desktop_config.example.json
+│   │
+│   └── ui/                        # Streamlit interface
+│       ├── streamlit_app.py       # app-shell UI (patient / staff / admin)
+│       └── api_client.py          # typed HTTP client to the FastAPI backend
+│
+├── tests/                         # pytest suite (64 tests, offline fake-LLM mode)
+│   ├── test_smoke.py              ├── test_tools.py
+│   ├── test_agents.py             ├── test_api.py
+│   ├── test_accounts.py           ├── test_ui_client.py
+│   ├── test_edge_cases.py         ├── test_safety_classification.py
+│   ├── test_time_handling.py      ├── test_appointment_outcomes.py
+│   ├── test_analytics.py          ├── test_mcp_server.py
+│   ├── test_consents.py           └── test_reminder_sync.py
+│
+├── init_db.py                     # create tables
+├── seed.py                        # synthetic seed data (departments, doctors, slots, users)
+├── run_workflow.py                # CLI workflow demo
+├── diagnose.py                    # login/setup troubleshooter
+├── conftest.py                    # pytest configuration
 ├── requirements.txt
-├── .env.example         # config template (no secrets)
-└── .github/workflows/   # CI checks
+├── .env.example                   # config template (no secrets)
+├── .streamlit/config.toml         # Streamlit theme
+└── .github/workflows/             # CI checks
 ```
 
 ---
 
-## Tools (Day 2 — all real DB logic, no stubs)
+## Tools (all real DB logic, no stubs)
 
 Every tool performs genuine logic against the persistent database and writes an
 audit event. None return fixed responses.
 
 | Tool | What it really does |
 |------|---------------------|
-| `find_or_create_patient` | Resolves a patient by email or creates User + PatientProfile |
-| `lookup_department` | Exact then fuzzy match against the persisted department list; returns candidates when uncertain |
-| `get_available_slots` | Queries OPEN slots joined to doctor + department |
-| `book_appointment` | **Genuine conflict detection** — slot must be OPEN and patient must have no overlapping active appointment |
-| `reschedule_appointment` | Frees the old slot, conflict-checks and books the new one |
-| `cancel_appointment` | Cancels and frees the slot |
+| `find_or_create_patient` | Resolves a patient by email or creates User + PatientProfile (grants default consents) |
+| `lookup_department` / `list_departments` | Exact then fuzzy match against the persisted department list; returns candidates when uncertain |
+| `get_available_slots` | Queries OPEN, **future** slots joined to doctor + department (never offers past times) |
+| `book_appointment` | **Genuine conflict detection** — slot must be OPEN, in the future, and the patient must have no overlapping active appointment |
+| `reschedule_appointment` | Frees the old slot, conflict-checks and books the new one, and regenerates reminders at the new time |
+| `cancel_appointment` | Cancels, frees the slot, and cancels the appointment's reminders |
+| `find_active_department_appointment` | Detects an existing upcoming appointment in the same department (duplicate-booking guard) |
+| `record_appointment_outcome` | Staff records attended (COMPLETED) or no-show (MISSED) for a past appointment |
+| `expire_past_appointments` | Moves past appointments to AWAITING_CONFIRMATION and retires stale slots (self-healing) |
 | `classify_and_store_document` | Keyword classification + **SHA-256 checksum duplicate detection** + real file storage |
 | `check_missing_documents` | Compares a patient's docs against the department's required set |
-| `create_reminder` / `create_followup` | Persisted reminder / post-visit follow-up tasks |
+| `create_reminder` / `create_followup` | Persisted reminder / post-visit follow-up tasks — **idempotent** (no duplicates per appointment) |
+| `cancel_reminders_for_appointment` | Cancels reminders when an appointment is cancelled or rescheduled |
 | `create_escalation` | Human-in-the-loop record; marks the workflow escalated |
+| `set_consent` / `has_consent` / `get_consents` | Patient consent grant/revoke/check — enforced before document storage |
 | `write_audit` | Append-only audit trail written by every tool |
 
 Run the tool tests:
@@ -232,12 +293,12 @@ Run the tool tests:
 pytest tests/test_tools.py -v
 ```
 
-## Running the agent workflow (Day 3)
+## Running the agent workflow
 
 The six agents are wired into a LangGraph graph with conditional edges
-(emergency / diagnosis-seeking -> escalate; uncertain route -> escalate) and a
-SQL checkpointer. Workflow state is persisted to `WorkflowRun` **and**
-checkpointed, so it survives restarts and is inspectable by staff.
+(empty request -> end; emergency / diagnosis-seeking -> escalate; uncertain route
+-> escalate) and a SQL checkpointer. Workflow state is persisted to `WorkflowRun`
+**and** checkpointed, so it survives restarts and is inspectable by staff.
 
 **Run it offline (no API key needed) to verify the wiring:**
 ```bash
@@ -261,7 +322,7 @@ Run the agent tests:
 pytest tests/test_agents.py -v
 ```
 
-## Backend API (Day 4)
+## Backend API
 
 FastAPI backend with **role-based access enforced server-side** (not by hiding UI),
 JWT auth, the escalation-approval workflow, and audit endpoints.
@@ -284,8 +345,13 @@ uvicorn app.api.main:app --reload
 | GET | `/me/available-slots` | patient | open slots for one of your appointments |
 | POST | `/me/appointments/{id}/reschedule` | patient | reschedule your OWN appointment (ownership enforced) |
 | POST | `/me/appointments/{id}/cancel` | patient | cancel your OWN appointment (ownership enforced) |
+| GET | `/me/consents` | patient | view your consent state |
+| POST | `/me/consents` | patient | grant/revoke a consent |
 | GET | `/staff/escalations` | staff | list escalations |
 | POST | `/staff/escalations/{id}/review` | staff | approve/reject (persisted, audited) |
+| GET | `/staff/appointments` | staff | schedule view (`?status=upcoming` or `awaiting_confirmation`) |
+| POST | `/staff/appointments/{id}/outcome` | staff | record attended (completed) / no-show (missed) |
+| GET | `/staff/analytics` | staff | live-aggregated KPIs + chart data |
 | GET | `/staff/workflows` `/staff/workflows/{id}` | staff | inspect runs + persisted agent state |
 | GET | `/staff/audit` | staff | the audit trail |
 | GET | `/staff/departments` | staff | department + doctor counts |
@@ -302,7 +368,7 @@ Run the API tests:
 pytest tests/test_api.py -v
 ```
 
-## User interface (Day 5)
+## User interface
 
 A polished **Streamlit** app wired entirely to the FastAPI backend over HTTP —
 every value shown comes from a live API call (`app/ui/api_client.py`). The layout
@@ -315,11 +381,13 @@ CSS design system, so it renders reliably across Streamlit versions.
 
 - **Patient** — sign in *or self-register*; submit an administrative request (runs
   the agent workflow) and see the confirmation/escalation with the agent trace;
-  upload documents; and view own requests, appointments, documents, reminders, and
+  upload documents; reschedule or cancel own appointments; manage **privacy
+  consents**; and view own requests, appointments, documents, reminders, and
   escalations.
-- **Staff** — review open escalations (approve/reject, persisted + audited),
-  inspect workflow runs and the persisted agent-state snapshot, and browse the
-  audit trail.
+- **Staff** — review open escalations (approve/reject, persisted + audited); see
+  the **upcoming schedule** and **record appointment outcomes** (attended/missed);
+  view the **analytics** dashboard; inspect workflow runs and the persisted
+  agent-state snapshot; and browse the audit trail.
 - **Admin** — everything staff can do, plus **People**: list all accounts and
   create new staff or patient users, and view departments.
 
@@ -348,7 +416,7 @@ logins authenticate.
 
 ## Optional extensions
 
-Beyond the core requirements, AgentCare includes:
+Three optional extensions from the challenge brief, each wired end-to-end:
 
 - **Consent management** — patients grant/revoke consent (document storage, data
   processing, communications) from a Privacy page. Consent is persisted, audited,
@@ -365,12 +433,6 @@ Beyond the core requirements, AgentCare includes:
   rate, documents, reminders) and charts (appointments by status, workflows by
   status, escalations by category, documents by type, department load). Nothing
   is hardcoded; every number is computed from the database.
-- **Staff schedule view** — upcoming appointments, earliest first.
-- **Duplicate-booking prevention** — if a patient already has an upcoming
-  appointment in the same department, a repeat request reuses it instead of
-  creating a duplicate (any attached document is still stored).
-- **Appointment outcome lifecycle** — past appointments await staff confirmation
-  (attended -> completed / no-show -> missed), with distinct status colors.
 
 ## Data & secret safety
 - No real patient data — all seed data is synthetic.
@@ -380,10 +442,33 @@ Beyond the core requirements, AgentCare includes:
 ---
 
 ## Status
-- [x] **Day 1** — project scaffold, full SQL schema, seed data, tests, config
-- [x] **Day 2** — tools layer (10 DB-backed functions, all tested)
-- [x] **Day 3** — LangGraph agents + orchestration (6 agents, conditional escalation, SQL checkpointer, 15 tests)
-- [x] **Day 4** — FastAPI backend + backend-enforced RBAC + escalation approval + audit API (7 API tests)
-- [x] **Day 5** — Streamlit UI (patient / staff / admin, self-registration, admin user management), wired to the backend
-- [x] **Day 6** — hardening: reschedule/cancel endpoints with backend ownership enforcement, duplicate-doc + double-cancel edge cases, interactive appointment management in the UI
-- [x] **Day 7** — safety false-positive fix, lifespan migration, empty-request guard, past-slot protection, full appointment lifecycle (confirmed -> awaiting confirmation -> completed/missed) with staff outcome recording and distinct status colors — staff upcoming-schedule view, **61 tests passing**
+
+**Complete and submitted — 64 tests passing** (offline fake-LLM mode, no API key required).
+
+**Core capabilities**
+- Full SQL schema with synthetic seed data (departments, doctors, slots, users)
+- 15+ real DB-backed tools, each audited — no stubs
+- Six-agent LangGraph orchestration (Coordinator, Safety, Routing, Appointment,
+  Document, Follow-up) with conditional escalation and a SQL checkpointer
+- FastAPI backend with backend-enforced RBAC across three roles, JWT auth, and a
+  human-in-the-loop escalation-approval workflow
+- Streamlit UI (patient / staff / admin) wired entirely to the backend over HTTP
+- Every action written to an append-only audit trail; confirmations assembled
+  from persisted records
+
+**Correctness & safety hardening**
+- Safety classification that escalates emergencies and clinical-advice requests
+  while letting routine administrative requests through
+- Never offers or books past-dated slots; past appointments self-heal into an
+  awaiting-confirmation state
+- Full appointment lifecycle: confirmed -> awaiting confirmation ->
+  completed / missed, with staff outcome recording and distinct status colors
+- Duplicate-booking prevention (same patient + department reuses the existing
+  appointment); reminders stay in sync (idempotent, cancelled/regenerated on
+  cancel/reschedule)
+- Ownership enforced on reschedule/cancel; empty requests handled gracefully
+
+**Optional extensions**
+- Analytics dashboard (live-aggregated KPIs + charts)
+- MCP hospital tool server (12 tools over the Model Context Protocol)
+- Consent management (patient-controlled, audited, enforced at document storage)
