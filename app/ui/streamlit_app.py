@@ -47,7 +47,8 @@ st.set_page_config(
 # Role -> ordered navigation (label, icon)
 NAV = {
     "patient": [("Overview", "🏠"), ("New request", "➕"), ("My requests", "📨"),
-                ("Appointments", "📅"), ("Documents", "📄"), ("Reminders", "🔔")],
+                ("Appointments", "📅"), ("Documents", "📄"), ("Reminders", "🔔"),
+                ("Privacy", "🔒")],
     "staff":   [("Overview", "🏠"), ("Escalations", "⚠️"), ("Appointments", "📅"),
                 ("Analytics", "📊"), ("Workflows", "🗂️"), ("Audit trail", "🧾")],
     "admin":   [("Overview", "🏠"), ("People", "👥"), ("Escalations", "⚠️"),
@@ -61,6 +62,7 @@ def inject_css():
     st.markdown(
         """
 <style>
+.ac-hint{color:var(--muted, #6b7280);font-size:.82rem;}
 :root{
   --teal-700:#0f766e; --teal-600:#0d9488; --teal-500:#14b8a6;
   --ink:#122421; --muted:#5f716c; --line:#e4ece9;
@@ -327,12 +329,14 @@ def load_patient(token):
     od, d = _safe(api.my_documents, token)
     orr, r = _safe(api.my_reminders, token)
     oe, e = _safe(api.my_escalations, token)
+    oc, cs = _safe(api.my_consents, token)
     return {
         "ok": bool(oa and od and orr),
         "appts": a if oa and isinstance(a, list) else [],
         "docs": d if od and isinstance(d, list) else [],
         "rems": r if orr and isinstance(r, list) else [],
         "escs": e if oe and isinstance(e, list) else [],
+        "consents": cs if oc and isinstance(cs, list) else [],
     }
 
 
@@ -831,6 +835,32 @@ def patient_section(section, token, data):
     elif section == "Reminders":
         page_head("Patient portal", "Reminders", "Appointment and follow-up reminders.")
         st.markdown(rems_html(data["rems"]), unsafe_allow_html=True)
+
+    elif section == "Privacy":
+        page_head("Patient portal", "Privacy & consent",
+                  "You control how AgentCare uses your data. Changes take effect immediately.")
+        labels = {
+            "document_storage": ("Document storage",
+                                 "Allow storing and processing documents you attach "
+                                 "(e.g. ECG, referrals). If off, attachments are not saved."),
+            "data_processing": ("Data processing",
+                                "Allow processing your data to handle administrative requests."),
+            "communications": ("Communications",
+                               "Allow appointment reminders and follow-up messages."),
+        }
+        consents = {c["consent_type"]: c for c in data.get("consents", [])}
+        for ctype, (title, desc) in labels.items():
+            c = consents.get(ctype, {"granted": False})
+            with st.container(border=True):
+                col_t, col_s = st.columns([4, 1])
+                col_t.markdown(f"**{title}**  \n<span class='ac-hint'>{esc(desc)}</span>",
+                               unsafe_allow_html=True)
+                new_val = col_s.toggle("Allowed", value=bool(c.get("granted")),
+                                       key=f"consent_{ctype}")
+                if new_val != bool(c.get("granted")):
+                    ok, _ = _safe(api.set_consent, token, ctype, new_val)
+                    if ok:
+                        st.rerun()
 
 
 def staff_section(section, token, data, role):

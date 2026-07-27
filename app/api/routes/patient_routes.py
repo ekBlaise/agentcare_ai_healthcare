@@ -151,3 +151,22 @@ def cancel_own_appointment(appointment_id: int,
     if not result.get("success"):
         raise HTTPException(status_code=409, detail=result.get("error", "cancel_failed"))
     return result
+
+
+@router.get("/me/consents")
+def my_consents(profile=Depends(current_patient_profile), db: Session = Depends(get_db)):
+    """List the caller's consent state for every consent type."""
+    from app.tools import get_consents
+    return get_consents(db, profile.id)
+
+
+@router.post("/me/consents")
+def set_my_consent(consent_type: str, granted: bool,
+                   user: User = Depends(get_current_user),
+                   profile=Depends(current_patient_profile), db: Session = Depends(get_db)):
+    """Grant or revoke one of the caller's own consents."""
+    from app.tools import set_consent
+    result = set_consent(db, profile.id, consent_type, granted, actor_id=user.id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "consent_failed"))
+    return result

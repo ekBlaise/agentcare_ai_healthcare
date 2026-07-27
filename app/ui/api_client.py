@@ -147,3 +147,14 @@ def record_outcome(token, appointment_id: int, attended: bool, client=None):
 def analytics(token, client=None):
     r = _client(client).get("/staff/analytics", headers=_auth(token))
     return r.status_code == 200, r.json()
+
+def my_consents(token, client=None):
+    r = _client(client).get("/me/consents", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def set_consent(token, consent_type: str, granted: bool, client=None):
+    r = _client(client).post(
+        f"/me/consents?consent_type={consent_type}&granted={str(granted).lower()}",
+        headers=_auth(token))
+    return r.status_code == 200, r.json()

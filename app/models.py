@@ -264,3 +264,28 @@ class AuditEvent(Base):
     entity_id = Column(Integer, nullable=True)
     event_metadata = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# CONSENT MANAGEMENT (patient authorization / oversight)
+# ══════════════════════════════════════════════════════════════════════
+
+class ConsentType(str, enum.Enum):
+    DOCUMENT_STORAGE = "document_storage"      # store & process my documents
+    DATA_PROCESSING = "data_processing"        # process my data for admin tasks
+    COMMUNICATIONS = "communications"          # send me reminders / follow-ups
+
+
+class Consent(Base):
+    __tablename__ = "consents"
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("patient_profiles.id"), nullable=False)
+    consent_type = Column(Enum(ConsentType), nullable=False)
+    granted = Column(Boolean, default=False)   # current state (grant/revoke toggles this)
+    granted_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    patient = relationship("PatientProfile")

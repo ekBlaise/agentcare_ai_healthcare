@@ -41,7 +41,13 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
                 password_hash=hash_password(body.password), role=UserRole.PATIENT)
     db.add(user)
     db.flush()
-    db.add(PatientProfile(user_id=user.id, preferred_language="English"))
+    profile = PatientProfile(user_id=user.id, preferred_language="English")
+    db.add(profile)
+    db.flush()
+    # New patients start with default consents granted (revocable any time).
+    from app.tools import set_consent
+    for ctype in ("document_storage", "data_processing", "communications"):
+        set_consent(db, profile.id, ctype, True, actor_id=user.id)
     db.commit()
 
     write_audit(db, action="register", entity_type="user", entity_id=user.id,

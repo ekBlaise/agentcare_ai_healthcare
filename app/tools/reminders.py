@@ -18,7 +18,24 @@ def create_reminder(
     message: str | None = None,
     scheduled_at: datetime | None = None,
 ) -> dict:
-    """Create a reminder. Defaults to 24h before the appointment start if available."""
+    """Create a reminder. Defaults to 24h before the appointment start if available.
+
+    Idempotent: if an active reminder of this type already exists for the
+    appointment, it is returned instead of creating a duplicate.
+    """
+    if appointment_id is not None:
+        existing = (db.query(Reminder)
+                    .filter(Reminder.appointment_id == appointment_id,
+                            Reminder.reminder_type == reminder_type,
+                            Reminder.status == ReminderStatus.SCHEDULED)
+                    .first())
+        if existing:
+            return {"success": True, "reminder_id": existing.id,
+                    "reminder_type": reminder_type,
+                    "scheduled_at": existing.scheduled_at.isoformat()
+                    if existing.scheduled_at else None,
+                    "duplicate": True}
+
     if scheduled_at is None and appointment_id is not None:
         appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
         if appt and appt.slot:
@@ -54,7 +71,23 @@ def create_followup(
     days_after: int = 14,
     message: str | None = None,
 ) -> dict:
-    """Schedule a post-visit follow-up task N days after the appointment."""
+    """Schedule a post-visit follow-up task N days after the appointment.
+
+    Idempotent: if an active follow-up already exists for the appointment, it is
+    returned instead of creating a duplicate.
+    """
+    if appointment_id is not None:
+        existing = (db.query(Reminder)
+                    .filter(Reminder.appointment_id == appointment_id,
+                            Reminder.reminder_type == "follow_up",
+                            Reminder.status == ReminderStatus.SCHEDULED)
+                    .first())
+        if existing:
+            return {"success": True, "followup_id": existing.id,
+                    "scheduled_at": existing.scheduled_at.isoformat()
+                    if existing.scheduled_at else None,
+                    "duplicate": True}
+
     base = datetime.now(timezone.utc)
     if appointment_id is not None:
         appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
@@ -80,3 +113,22 @@ def create_followup(
         "success": True, "followup_id": reminder.id,
         "scheduled_at": scheduled_at.isoformat(),
     }
+
+
+def cancel_reminders_for_appointment(db: Session, appointment_id: int) -> dict:
+    """Cancel all scheduled reminders/follow-ups tied to an appointment.
+
+    Called when an appointment is cancelled or rescheduled so reminders never
+    point at a stale appointment. Returns the count cancelled.
+    """
+    rows = (db.query(Reminder)
+            .filter(Reminder.appointment_id == appointment_id,
+                    Reminder.status == ReminderStatus.SCHEDULED)
+            .all())
+    for r in rows:
+        r.status = ReminderStatus.CANCELLED
+    db.commit()
+    if rows:
+        write_audit(db, action="reminders_cancelled", entity_type="appointment",
+                    entity_id=appointment_id, metadata={"count": len(rows)})
+    return {"cancelled": len(rows)}

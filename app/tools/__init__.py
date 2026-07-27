@@ -11,8 +11,9 @@ from app.tools.appointments import (
 from app.tools.documents import (
     classify_document, classify_and_store_document, check_missing_documents,
 )
-from app.tools.reminders import create_reminder, create_followup
+from app.tools.reminders import create_reminder, create_followup, cancel_reminders_for_appointment
 from app.tools.escalations import create_escalation
+from app.tools.consents import set_consent, has_consent, get_consents
 
 __all__ = [
     "write_audit",
@@ -22,6 +23,7 @@ __all__ = [
     "reschedule_appointment", "cancel_appointment", "record_appointment_outcome",
     "find_active_department_appointment",
     "classify_document", "classify_and_store_document", "check_missing_documents",
-    "create_reminder", "create_followup",
+    "create_reminder", "create_followup", "cancel_reminders_for_appointment",
     "create_escalation",
+    "set_consent", "has_consent", "get_consents",
 ]

@@ -162,6 +162,14 @@ def reschedule_appointment(db: Session, appointment_id: int, new_slot_id: int) -
     db.commit()
     db.refresh(appt)
 
+    # The time changed: cancel stale reminders and regenerate for the new slot.
+    from app.tools.reminders import (
+        cancel_reminders_for_appointment, create_reminder, create_followup,
+    )
+    cancel_reminders_for_appointment(db, appt.id)
+    create_reminder(db, appt.patient_id, appt.id, reminder_type="appointment")
+    create_followup(db, appt.patient_id, appt.id, days_after=14)
+
     write_audit(db, action="appointment_rescheduled", entity_type="appointment",
                 entity_id=appt.id, metadata={"from_slot": old_slot.id if old_slot else None,
                                              "to_slot": new_slot.id})
@@ -187,6 +195,10 @@ def cancel_appointment(db: Session, appointment_id: int) -> dict:
         slot.status = SlotStatus.OPEN
     appt.status = AppointmentStatus.CANCELLED
     db.commit()
+
+    # Cancel any scheduled reminders/follow-ups for this appointment.
+    from app.tools.reminders import cancel_reminders_for_appointment
+    cancel_reminders_for_appointment(db, appt.id)
 
     write_audit(db, action="appointment_cancelled", entity_type="appointment",
                 entity_id=appt.id, metadata={"freed_slot": slot.id if slot else None})
