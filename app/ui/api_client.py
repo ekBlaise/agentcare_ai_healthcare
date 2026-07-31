@@ -187,3 +187,30 @@ def admin_update_doctor(token, doctor_id, name=None, department_id=None,
     qs = ("?" + "&".join(params)) if params else ""
     r = _client(client).patch(f"/admin/doctors/{doctor_id}{qs}", headers=_auth(token))
     return r.status_code == 200, r.json()
+
+
+def admin_list_departments(token, client=None):
+    r = _client(client).get("/admin/departments", headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def admin_add_department(token, name, description="", client=None):
+    r = _client(client).post(
+        f"/admin/departments?name={name}&description={description}", headers=_auth(token))
+    if r.status_code in (200, 201):
+        return True, r.json()
+    return False, {"detail": r.json().get("detail", "Could not add department")}
+
+
+def admin_update_department(token, department_id, name=None, description=None,
+                            active=None, client=None):
+    params = []
+    if name is not None:
+        params.append(f"name={name}")
+    if description is not None:
+        params.append(f"description={description}")
+    if active is not None:
+        params.append(f"active={str(active).lower()}")
+    qs = ("?" + "&".join(params)) if params else ""
+    r = _client(client).patch(f"/admin/departments/{department_id}{qs}", headers=_auth(token))
+    return r.status_code == 200, r.json()

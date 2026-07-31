@@ -94,6 +94,26 @@ h1,h2,h3,h4{color:var(--ink); letter-spacing:-.01em;}
 .stButton>button[kind="primary"]:hover, .stFormSubmitButton>button[kind="primary"]:hover{
   box-shadow:0 8px 22px rgba(13,148,136,.36);}
 
+/* Danger (deactivate) button — scoped via a wrapper */
+.danger-btn .stButton>button{
+  background:var(--red-bg,#fee2e2); color:var(--red,#dc2626);
+  border:1px solid var(--red,#dc2626); font-weight:600;}
+.danger-btn .stButton>button:hover{
+  background:var(--red,#dc2626); color:#fff;
+  box-shadow:0 6px 16px rgba(220,38,38,.28);}
+/* Activate button — subtle green */
+.ok-btn .stButton>button{
+  background:var(--green-bg,#dcfce7); color:var(--green,#16a34a);
+  border:1px solid var(--green,#16a34a); font-weight:600;}
+.ok-btn .stButton>button:hover{
+  background:var(--green,#16a34a); color:#fff;
+  box-shadow:0 6px 16px rgba(22,163,74,.24);}
+/* Resource card status dot */
+.res-dot{display:inline-block;width:8px;height:8px;border-radius:999px;margin-right:6px;
+  vertical-align:middle;}
+.res-dot.on{background:var(--green,#16a34a);}
+.res-dot.off{background:#9ca3af;}
+
 [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea{border-radius:11px !important;}
 [data-testid="stFileUploaderDropzone"]{border-radius:12px; background:#f7fbfa;}
 [data-testid="stAlert"]{border-radius:12px;}
@@ -359,7 +379,7 @@ def load_staff(token, role):
         "users": [],
     }
     if role == "admin":
-        odp, dp = _safe(api.list_departments, token)
+        odp, dp = _safe(api.admin_list_departments, token)
         data["depts"] = dp if odp and isinstance(dp, list) else []
         ou, us = _safe(api.list_users, token)
         data["users"] = us if ou and isinstance(us, list) else []
@@ -1105,78 +1125,143 @@ def staff_section(section, token, data, role):
 
     elif section == "Departments":
         page_head(crumb, "Departments & doctors",
-                  "Departments and the doctors (schedulable resources) in each.")
-        st.markdown(departments_html(data["depts"]), unsafe_allow_html=True)
+                  "Manage departments and the doctors (schedulable resources) in each.")
 
         depts = data.get("depts", [])
         doctors = data.get("doctors", [])
-        dept_by_id = {d.get("department_id", d.get("id")): d.get("name") for d in depts}
         dept_options = {d.get("name"): d.get("department_id", d.get("id")) for d in depts}
 
-        # ── Add a doctor ──
-        st.markdown(sec_header("Add a doctor"), unsafe_allow_html=True)
-        if not dept_options:
-            st.caption("No departments available.")
-        else:
-            c1, c2, c3 = st.columns([2, 2, 1])
-            new_name = c1.text_input("Doctor name", key="new_doc_name",
-                                     placeholder="Dr. Jane Doe")
-            new_dept = c2.selectbox("Department", list(dept_options.keys()),
-                                    key="new_doc_dept")
-            c3.write("")
-            c3.write("")
-            if c3.button("Add", key="add_doc_btn", use_container_width=True):
-                if new_name.strip():
-                    ok, res = _safe(api.admin_add_doctor, token, new_name.strip(),
-                                    dept_options[new_dept])
-                    if ok:
-                        st.success(f"Added {new_name}.")
-                        st.rerun()
-                    else:
-                        st.error(res.get("detail", "Could not add doctor."))
-                else:
-                    st.warning("Enter a doctor name.")
+        def _danger_button(label, key):
+            st.markdown('<div class="danger-btn">', unsafe_allow_html=True)
+            clicked = st.button(label, key=key, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return clicked
 
-        # ── Existing doctors ──
-        st.markdown(sec_header("Doctors"), unsafe_allow_html=True)
-        if not doctors:
-            st.markdown(empty("🩺", "No doctors yet. Add one above."),
+        def _ok_button(label, key):
+            st.markdown('<div class="ok-btn">', unsafe_allow_html=True)
+            clicked = st.button(label, key=key, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return clicked
+
+        tab_depts, tab_docs = st.tabs(["🏥 Departments", "🩺 Doctors"])
+
+        # ─────────────── DEPARTMENTS ───────────────
+        with tab_depts:
+            st.markdown(sec_header("Add a department"), unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([2, 3, 1])
+            nd_name = c1.text_input("Name", key="nd_name", placeholder="Neurology")
+            nd_desc = c2.text_input("Description", key="nd_desc",
+                                    placeholder="Brain & nervous system administration")
+            c3.write(""); c3.write("")
+            if c3.button("Add", key="add_dept_btn", use_container_width=True):
+                if nd_name.strip():
+                    ok, res = _safe(api.admin_add_department, token, nd_name.strip(), nd_desc.strip())
+                    if ok:
+                        st.success(f"Added {nd_name}."); st.rerun()
+                    else:
+                        st.error(res.get("detail", "Could not add department."))
+                else:
+                    st.warning("Enter a department name.")
+
+            st.markdown(sec_header("Departments"), unsafe_allow_html=True)
+            if not depts:
+                st.markdown(empty("🏥", "No departments yet."), unsafe_allow_html=True)
+            for d in depts:
+                dep_id = d.get("department_id", d.get("id"))
+                on = d.get("active")
+                with st.container(border=True):
+                    top = st.columns([4, 1])
+                    dot = "on" if on else "off"
+                    top[0].markdown(
+                        f"<span class='res-dot {dot}'></span>**{esc(d['name'])}**  \n"
+                        f"<span class='ac-hint'>{esc(d.get('description') or 'No description')} · "
+                        f"{d.get('doctor_count', 0)} doctors</span>",
                         unsafe_allow_html=True)
-        else:
+                    with top[1]:
+                        if on:
+                            if _danger_button("Deactivate", f"dep_deact_{dep_id}"):
+                                ok, _ = _safe(api.admin_update_department, token, dep_id, active=False)
+                                if ok: st.rerun()
+                        else:
+                            if _ok_button("Activate", f"dep_act_{dep_id}"):
+                                ok, _ = _safe(api.admin_update_department, token, dep_id, active=True)
+                                if ok: st.rerun()
+                    # Edit (expander)
+                    with st.expander("Edit"):
+                        e1, e2 = st.columns([2, 3])
+                        en = e1.text_input("Name", value=d["name"], key=f"dep_ename_{dep_id}")
+                        ed = e2.text_input("Description", value=d.get("description") or "",
+                                           key=f"dep_edesc_{dep_id}")
+                        if st.button("Save changes", key=f"dep_save_{dep_id}"):
+                            ok, res = _safe(api.admin_update_department, token, dep_id,
+                                            name=en.strip(), description=ed.strip())
+                            if ok:
+                                st.success("Saved."); st.rerun()
+                            else:
+                                st.error(res.get("detail", "Could not save."))
+
+        # ─────────────── DOCTORS ───────────────
+        with tab_docs:
+            st.markdown(sec_header("Add a doctor"), unsafe_allow_html=True)
+            if not dept_options:
+                st.caption("Add a department first.")
+            else:
+                c1, c2, c3 = st.columns([2, 2, 1])
+                new_name = c1.text_input("Doctor name", key="new_doc_name",
+                                         placeholder="Dr. Jane Doe")
+                new_dept = c2.selectbox("Department", list(dept_options.keys()),
+                                        key="new_doc_dept")
+                c3.write(""); c3.write("")
+                if c3.button("Add", key="add_doc_btn", use_container_width=True):
+                    if new_name.strip():
+                        ok, res = _safe(api.admin_add_doctor, token, new_name.strip(),
+                                        dept_options[new_dept])
+                        if ok:
+                            st.success(f"Added {new_name}."); st.rerun()
+                        else:
+                            st.error(res.get("detail", "Could not add doctor."))
+                    else:
+                        st.warning("Enter a doctor name.")
+
+            st.markdown(sec_header("Doctors"), unsafe_allow_html=True)
+            if not doctors:
+                st.markdown(empty("🩺", "No doctors yet. Add one above."), unsafe_allow_html=True)
             for d in doctors:
                 did = d["doctor_id"]
+                on = d.get("active")
                 with st.container(border=True):
-                    cols = st.columns([3, 2, 1, 1])
-                    status = "🟢 active" if d.get("active") else "⚪ inactive"
-                    cols[0].markdown(f"**{esc(d['name'])}**  \n"
-                                     f"<span class='ac-hint'>{esc(d.get('department') or '')} · "
-                                     f"{d.get('open_slots', 0)} open slots · {status}</span>",
-                                     unsafe_allow_html=True)
-                    # reassign department
-                    cur_dept = d.get("department")
-                    dept_names = list(dept_options.keys())
-                    idx = dept_names.index(cur_dept) if cur_dept in dept_names else 0
-                    picked = cols[1].selectbox("Department", dept_names, index=idx,
-                                               key=f"doc_dept_{did}",
-                                               label_visibility="collapsed")
-                    if dept_options.get(picked) != d.get("department_id"):
-                        ok, _ = _safe(api.admin_update_doctor, token, did,
-                                      department_id=dept_options[picked])
-                        if ok:
-                            st.rerun()
-                    # toggle active
-                    if d.get("active"):
-                        if cols[2].button("Deactivate", key=f"deact_{did}",
-                                          use_container_width=True):
-                            ok, _ = _safe(api.admin_update_doctor, token, did, active=False)
+                    top = st.columns([4, 1])
+                    dot = "on" if on else "off"
+                    top[0].markdown(
+                        f"<span class='res-dot {dot}'></span>**{esc(d['name'])}**  \n"
+                        f"<span class='ac-hint'>{esc(d.get('department') or '')} · "
+                        f"{d.get('open_slots', 0)} open slots</span>",
+                        unsafe_allow_html=True)
+                    with top[1]:
+                        if on:
+                            if _danger_button("Deactivate", f"deact_{did}"):
+                                ok, _ = _safe(api.admin_update_doctor, token, did, active=False)
+                                if ok: st.rerun()
+                        else:
+                            if _ok_button("Activate", f"act_{did}"):
+                                ok, _ = _safe(api.admin_update_doctor, token, did, active=True)
+                                if ok: st.rerun()
+                    # Edit (rename + reassign department)
+                    with st.expander("Edit"):
+                        en = st.text_input("Name", value=d["name"], key=f"doc_ename_{did}")
+                        dept_names = list(dept_options.keys())
+                        cur = d.get("department")
+                        idx = dept_names.index(cur) if cur in dept_names else 0
+                        picked = st.selectbox("Department", dept_names, index=idx,
+                                              key=f"doc_edept_{did}")
+                        if st.button("Save changes", key=f"doc_save_{did}"):
+                            ok, res = _safe(api.admin_update_doctor, token, did,
+                                            name=en.strip(),
+                                            department_id=dept_options[picked])
                             if ok:
-                                st.rerun()
-                    else:
-                        if cols[2].button("Activate", key=f"act_{did}",
-                                          use_container_width=True):
-                            ok, _ = _safe(api.admin_update_doctor, token, did, active=True)
-                            if ok:
-                                st.rerun()
+                                st.success("Saved."); st.rerun()
+                            else:
+                                st.error(res.get("detail", "Could not save."))
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────

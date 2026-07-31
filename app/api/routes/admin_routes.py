@@ -91,3 +91,37 @@ def admin_update_doctor(doctor_id: int, name: str | None = None,
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "update_failed"))
     return result
+
+
+# ── Department management ──
+@router.get("/departments")
+def admin_list_departments(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.models import Department, Doctor
+    out = []
+    for d in db.query(Department).order_by(Department.name).all():
+        doc_count = db.query(Doctor).filter(Doctor.department_id == d.id).count()
+        out.append({"department_id": d.id, "name": d.name, "description": d.description,
+                    "active": bool(d.active), "doctor_count": doc_count})
+    return out
+
+
+@router.post("/departments", status_code=201)
+def admin_add_department(name: str, description: str | None = None,
+                         user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.tools import add_department
+    result = add_department(db, name, description, actor_id=user.id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "add_failed"))
+    return result
+
+
+@router.patch("/departments/{department_id}")
+def admin_update_department(department_id: int, name: str | None = None,
+                            description: str | None = None, active: bool | None = None,
+                            user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.tools import update_department
+    result = update_department(db, department_id, name=name, description=description,
+                               active=active, actor_id=user.id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "update_failed"))
+    return result
