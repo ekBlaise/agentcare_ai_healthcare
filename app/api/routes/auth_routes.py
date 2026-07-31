@@ -41,7 +41,9 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
                 password_hash=hash_password(body.password), role=UserRole.PATIENT)
     db.add(user)
     db.flush()
-    profile = PatientProfile(user_id=user.id, preferred_language="English")
+    from app.tools.patients import _generate_mrn
+    profile = PatientProfile(user_id=user.id, preferred_language="English",
+                             mrn=_generate_mrn(db))
     db.add(profile)
     db.flush()
     # New patients start with default consents granted (revocable any time).

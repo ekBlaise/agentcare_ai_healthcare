@@ -70,7 +70,8 @@ def my_appointments(profile=Depends(current_patient_profile), db: Session = Depe
 def my_documents(profile=Depends(current_patient_profile), db: Session = Depends(get_db)):
     docs = db.query(PatientDocument).filter(PatientDocument.patient_id == profile.id).all()
     return [{"document_id": d.id, "type": d.document_type,
-             "date": d.document_date, "checksum": d.checksum} for d in docs]
+             "date": d.document_date, "checksum": d.checksum,
+             "appointment_id": d.appointment_id} for d in docs]
 
 
 @router.get("/me/reminders")

@@ -161,11 +161,15 @@ def list_appointments(status: str = "awaiting_confirmation",
             return a.patient.user.email
         return None
 
+    def _patient_mrn(a):
+        return a.patient.mrn if a.patient else None
+
     return [{
         "appointment_id": a.id,
         "patient_id": a.patient_id,
         "patient_name": _patient_name(a),
         "patient_email": _patient_email(a),
+        "patient_mrn": _patient_mrn(a),
         "status": a.status.value,
         "doctor": a.doctor.name if a.doctor else None,
         "department": a.doctor.department.name if a.doctor and a.doctor.department else None,

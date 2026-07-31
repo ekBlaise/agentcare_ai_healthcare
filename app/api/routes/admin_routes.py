@@ -61,3 +61,33 @@ def create_user(body: CreateUserIn, user: User = Depends(require_admin),
                 actor_id=user.id, actor_type=user.role.value,
                 metadata={"role": role.value, "email": email})
     return _user_dict(new_user)
+
+
+# ── Doctor management (doctors are schedulable resources, not login users) ──
+@router.get("/doctors")
+def admin_list_doctors(department_id: int | None = None,
+                       user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.tools import list_doctors
+    return list_doctors(db, department_id=department_id)
+
+
+@router.post("/doctors", status_code=201)
+def admin_add_doctor(name: str, department_id: int,
+                     user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.tools import add_doctor
+    result = add_doctor(db, name, department_id, actor_id=user.id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "add_failed"))
+    return result
+
+
+@router.patch("/doctors/{doctor_id}")
+def admin_update_doctor(doctor_id: int, name: str | None = None,
+                        department_id: int | None = None, active: bool | None = None,
+                        user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from app.tools import update_doctor
+    result = update_doctor(db, doctor_id, name=name, department_id=department_id,
+                           active=active, actor_id=user.id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "update_failed"))
+    return result

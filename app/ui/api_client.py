@@ -148,6 +148,7 @@ def analytics(token, client=None):
     r = _client(client).get("/staff/analytics", headers=_auth(token))
     return r.status_code == 200, r.json()
 
+
 def my_consents(token, client=None):
     r = _client(client).get("/me/consents", headers=_auth(token))
     return r.status_code == 200, r.json()
@@ -157,4 +158,32 @@ def set_consent(token, consent_type: str, granted: bool, client=None):
     r = _client(client).post(
         f"/me/consents?consent_type={consent_type}&granted={str(granted).lower()}",
         headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def admin_list_doctors(token, department_id=None, client=None):
+    url = "/admin/doctors" + (f"?department_id={department_id}" if department_id else "")
+    r = _client(client).get(url, headers=_auth(token))
+    return r.status_code == 200, r.json()
+
+
+def admin_add_doctor(token, name, department_id, client=None):
+    r = _client(client).post(
+        f"/admin/doctors?name={name}&department_id={department_id}", headers=_auth(token))
+    if r.status_code in (200, 201):
+        return True, r.json()
+    return False, {"detail": r.json().get("detail", "Could not add doctor")}
+
+
+def admin_update_doctor(token, doctor_id, name=None, department_id=None,
+                        active=None, client=None):
+    params = []
+    if name is not None:
+        params.append(f"name={name}")
+    if department_id is not None:
+        params.append(f"department_id={department_id}")
+    if active is not None:
+        params.append(f"active={str(active).lower()}")
+    qs = ("?" + "&".join(params)) if params else ""
+    r = _client(client).patch(f"/admin/doctors/{doctor_id}{qs}", headers=_auth(token))
     return r.status_code == 200, r.json()

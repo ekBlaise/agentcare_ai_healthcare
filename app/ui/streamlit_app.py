@@ -363,6 +363,8 @@ def load_staff(token, role):
         data["depts"] = dp if odp and isinstance(dp, list) else []
         ou, us = _safe(api.list_users, token)
         data["users"] = us if ou and isinstance(us, list) else []
+        odoc, docs = _safe(api.admin_list_doctors, token)
+        data["doctors"] = docs if odoc and isinstance(docs, list) else []
     return data
 
 
@@ -375,9 +377,10 @@ def appts_html(appts):
         # Staff view includes patient_name; patient view does not.
         patient_line = ""
         if a.get("patient_name"):
+            mrn = f' · {esc(a["patient_mrn"])}' if a.get("patient_mrn") else ""
             patient_line = (f'<div class="s">👤 {esc(a["patient_name"])}'
                             f'{" · " + esc(a["patient_email"]) if a.get("patient_email") else ""}'
-                            f'</div>')
+                            f'{mrn}</div>')
         out += (
             f'<div class="ac-item"><div>'
             f'<div class="t">{esc(a.get("department") or "Appointment")}'
@@ -1101,8 +1104,79 @@ def staff_section(section, token, data, role):
             st.markdown(users_html(patient_users), unsafe_allow_html=True)
 
     elif section == "Departments":
-        page_head(crumb, "Departments", "Departments and their staffing.")
+        page_head(crumb, "Departments & doctors",
+                  "Departments and the doctors (schedulable resources) in each.")
         st.markdown(departments_html(data["depts"]), unsafe_allow_html=True)
+
+        depts = data.get("depts", [])
+        doctors = data.get("doctors", [])
+        dept_by_id = {d.get("department_id", d.get("id")): d.get("name") for d in depts}
+        dept_options = {d.get("name"): d.get("department_id", d.get("id")) for d in depts}
+
+        # ── Add a doctor ──
+        st.markdown(sec_header("Add a doctor"), unsafe_allow_html=True)
+        if not dept_options:
+            st.caption("No departments available.")
+        else:
+            c1, c2, c3 = st.columns([2, 2, 1])
+            new_name = c1.text_input("Doctor name", key="new_doc_name",
+                                     placeholder="Dr. Jane Doe")
+            new_dept = c2.selectbox("Department", list(dept_options.keys()),
+                                    key="new_doc_dept")
+            c3.write("")
+            c3.write("")
+            if c3.button("Add", key="add_doc_btn", use_container_width=True):
+                if new_name.strip():
+                    ok, res = _safe(api.admin_add_doctor, token, new_name.strip(),
+                                    dept_options[new_dept])
+                    if ok:
+                        st.success(f"Added {new_name}.")
+                        st.rerun()
+                    else:
+                        st.error(res.get("detail", "Could not add doctor."))
+                else:
+                    st.warning("Enter a doctor name.")
+
+        # ── Existing doctors ──
+        st.markdown(sec_header("Doctors"), unsafe_allow_html=True)
+        if not doctors:
+            st.markdown(empty("🩺", "No doctors yet. Add one above."),
+                        unsafe_allow_html=True)
+        else:
+            for d in doctors:
+                did = d["doctor_id"]
+                with st.container(border=True):
+                    cols = st.columns([3, 2, 1, 1])
+                    status = "🟢 active" if d.get("active") else "⚪ inactive"
+                    cols[0].markdown(f"**{esc(d['name'])}**  \n"
+                                     f"<span class='ac-hint'>{esc(d.get('department') or '')} · "
+                                     f"{d.get('open_slots', 0)} open slots · {status}</span>",
+                                     unsafe_allow_html=True)
+                    # reassign department
+                    cur_dept = d.get("department")
+                    dept_names = list(dept_options.keys())
+                    idx = dept_names.index(cur_dept) if cur_dept in dept_names else 0
+                    picked = cols[1].selectbox("Department", dept_names, index=idx,
+                                               key=f"doc_dept_{did}",
+                                               label_visibility="collapsed")
+                    if dept_options.get(picked) != d.get("department_id"):
+                        ok, _ = _safe(api.admin_update_doctor, token, did,
+                                      department_id=dept_options[picked])
+                        if ok:
+                            st.rerun()
+                    # toggle active
+                    if d.get("active"):
+                        if cols[2].button("Deactivate", key=f"deact_{did}",
+                                          use_container_width=True):
+                            ok, _ = _safe(api.admin_update_doctor, token, did, active=False)
+                            if ok:
+                                st.rerun()
+                    else:
+                        if cols[2].button("Activate", key=f"act_{did}",
+                                          use_container_width=True):
+                            ok, _ = _safe(api.admin_update_doctor, token, did, active=True)
+                            if ok:
+                                st.rerun()
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────

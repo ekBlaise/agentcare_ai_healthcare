@@ -60,11 +60,15 @@ def seed():
         db.flush()
 
         profile = PatientProfile(
-            user_id=patient_user.id, date_of_birth="1985-04-12", age=40,
+            user_id=patient_user.id, mrn="MRN-100001", date_of_birth="1985-04-12", age=40,
             phone="+237-600-000-000", preferred_language="English",
             emergency_contact="Kin Patient +237-600-111-111",
         )
         db.add(profile)
+        db.flush()
+        from app.tools import set_consent
+        for _ct in ("document_storage", "data_processing", "communications"):
+            set_consent(db, profile.id, _ct, True)
 
         # ── Departments + doctors ────────────────────────────────────
         dept_objs = {}

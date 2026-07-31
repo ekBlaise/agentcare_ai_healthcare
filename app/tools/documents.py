@@ -65,6 +65,7 @@ def classify_and_store_document(
     content: bytes,
     declared_type: str | None = None,
     document_date: str | None = None,
+    appointment_id: int | None = None,
 ) -> dict:
     """
     Classify, checksum, dedupe, store metadata, and map a document to a patient.
@@ -100,6 +101,7 @@ def classify_and_store_document(
 
     doc = PatientDocument(
         patient_id=patient_id,
+        appointment_id=appointment_id,
         document_type=doc_type,
         file_path=file_path,
         document_date=document_date,
@@ -111,12 +113,14 @@ def classify_and_store_document(
 
     write_audit(db, action="document_stored", entity_type="patient_document",
                 entity_id=doc.id,
-                metadata={"type": doc_type, "checksum": checksum, "filename": filename})
+                metadata={"type": doc_type, "checksum": checksum, "filename": filename,
+                          "appointment_id": appointment_id})
 
     return {
         "success": True, "duplicate": False,
         "document_id": doc.id, "document_type": doc_type,
         "checksum": checksum, "file_path": file_path,
+        "appointment_id": appointment_id,
     }
 
 

@@ -2,6 +2,7 @@
 from app.tools.audit import write_audit
 from app.tools.patients import find_or_create_patient
 from app.tools.departments import lookup_department, list_departments
+from app.tools.doctors import list_doctors, add_doctor, update_doctor, set_doctor_active
 from app.tools.appointments import (
     get_available_slots, book_appointment,
     reschedule_appointment, cancel_appointment, expire_past_appointments,
@@ -19,6 +20,7 @@ __all__ = [
     "write_audit",
     "find_or_create_patient",
     "lookup_department", "list_departments",
+    "list_doctors", "add_doctor", "update_doctor", "set_doctor_active",
     "get_available_slots", "book_appointment", "expire_past_appointments",
     "reschedule_appointment", "cancel_appointment", "record_appointment_outcome",
     "find_active_department_appointment",

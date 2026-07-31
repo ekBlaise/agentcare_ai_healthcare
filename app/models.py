@@ -92,6 +92,7 @@ class PatientProfile(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    mrn = Column(String(20), nullable=True, unique=True, index=True)  # medical record number (stable identity)
     date_of_birth = Column(String(20), nullable=True)   # ISO date string (synthetic data)
     age = Column(Integer, nullable=True)
     phone = Column(String(40), nullable=True)
@@ -178,6 +179,7 @@ class PatientDocument(Base):
 
     id = Column(Integer, primary_key=True)
     patient_id = Column(Integer, ForeignKey("patient_profiles.id"), nullable=False)
+    appointment_id = Column(Integer, ForeignKey("appointments.id"), nullable=True)  # linked encounter
     document_type = Column(String(80), nullable=True)     # ECG, blood_report, referral...
     file_path = Column(String(400), nullable=True)         # storage reference
     document_date = Column(String(20), nullable=True)

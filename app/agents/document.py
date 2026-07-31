@@ -29,6 +29,7 @@ def document_agent(state: dict) -> dict:
                             entity_type="patient_profile", entity_id=patient_id,
                             metadata={"attached": len(docs_in)})
             else:
+                appt_id = state.get("appointment_id")
                 for d in docs_in:
                     content = d.get("content", b"")
                     if isinstance(content, str):
@@ -36,6 +37,7 @@ def document_agent(state: dict) -> dict:
                     res = classify_and_store_document(
                         db, patient_id, d.get("filename", "document"), content,
                         declared_type=d.get("declared_type"),
+                        appointment_id=appt_id,
                     )
                     stored.append(res)
 
